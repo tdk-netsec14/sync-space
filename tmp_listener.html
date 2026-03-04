@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>SyncSpace Listener</title>
+    <style>body{font-family:sans-serif;padding:20px} .box{padding:12px;border:1px solid #ddd;border-radius:6px;margin-bottom:8px}</style>
+  </head>
+  <body>
+    <h3>SyncSpace Listener</h3>
+    <div id="info" class="box">Initializing...</div>
+    <div id="created" class="box">Created: <span>0</span></div>
+    <div id="moved" class="box">Moved: <span>0</span></div>
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+    <script>
+      const workspaceId = '6a0aa3eb0da383c3b6979091';
+      const boardId = '6a0aa3eb0da383c3b6979098';
+      const infoEl = document.getElementById('info');
+      const createdEl = document.getElementById('created').querySelector('span');
+      const movedEl = document.getElementById('moved').querySelector('span');
+      let created = 0, moved = 0;
+      const socket = io('http://localhost:5000', { transports: ['websocket'] });
+      socket.on('connect', () => {
+        infoEl.textContent = 'connected (' + socket.id + ')';
+        socket.emit('join:workspace', workspaceId);
+        socket.emit('join:board', boardId);
+      });
+      socket.on('task:created', (payload) => {
+        created += 1; createdEl.textContent = String(created);
+        const p = document.createElement('pre'); p.textContent = 'task:created '+JSON.stringify(payload); document.body.appendChild(p);
+      });
+      socket.on('task:moved', (payload) => {
+        moved += 1; movedEl.textContent = String(moved);
+        const p = document.createElement('pre'); p.textContent = 'task:moved '+JSON.stringify(payload); document.body.appendChild(p);
+      });
+      socket.on('disconnect', () => { infoEl.textContent = 'disconnected'; });
+    </script>
+  </body>
+</html>
