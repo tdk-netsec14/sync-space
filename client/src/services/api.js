@@ -1,166 +1,242 @@
+/**
+ * client/src/services/api.js
+ *
+ * Centralized Axios instance with:
+ *  - Base URL from import.meta.env.VITE_API_URL (no hardcoded localhost)
+ *  - Request interceptor: attaches Authorization header
+ *  - Response interceptor:
+ *      • 401 TOKEN_EXPIRED → attempts silent token refresh, retries once
+ *      • 401 UNAUTHORIZED (non-expired) → clears session + redirects to login
+ *      • Network errors → dispatches a toast event for the global toast handler
+ */
 import axios from 'axios';
 
-const tokenKey = 'syncspace_token';
-const userKey = 'syncspace_user';
-const workspaceKey = 'syncspace_workspace';
+// ---------------------------------------------------------------------------
+// Config from env
+// ---------------------------------------------------------------------------
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_PREFIX = import.meta.env.VITE_API_PREFIX || '/api/v1';
 
+export const tokenKey = 'syncspace_token';
+export const userKey = 'syncspace_user';
+export const workspaceKey = 'syncspace_workspace';
+
+// Legacy export for backward compat with AuthContext
+export const storageKeys = { tokenKey, userKey, workspaceKey };
+
+// ---------------------------------------------------------------------------
+// Axios instance
+// ---------------------------------------------------------------------------
 export const api = axios.create({
-  baseURL: 'http://localhost:5000'
+  baseURL: BASE_URL,
+  withCredentials: true, // required for refresh-token cookie
+  headers: { 'Content-Type': 'application/json' }
 });
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+function getToken() {
+  return localStorage.getItem(tokenKey) || '';
+}
+
+function clearSession() {
+  localStorage.removeItem(tokenKey);
+  localStorage.removeItem(userKey);
+  localStorage.removeItem(workspaceKey);
+}
+
+function dispatchNetworkToast(message) {
+  window.dispatchEvent(new CustomEvent('syncspace:toast', { detail: { message, type: 'error' } }));
+}
+
+// ---------------------------------------------------------------------------
+// Refresh token logic (called at most once per 401 to avoid infinite loops)
+// ---------------------------------------------------------------------------
+let isRefreshing = false;
+let pendingQueue = []; // Array of { resolve, reject }
+
+function processQueue(error, token = null) {
+  pendingQueue.forEach(({ resolve, reject }) => {
+    if (error) reject(error);
+    else resolve(token);
+  });
+  pendingQueue = [];
+}
+
+async function refreshAccessToken() {
+  const response = await axios.post(
+    `${BASE_URL}${API_PREFIX}/auth/refresh`,
+    {},
+    { withCredentials: true }
+  );
+  const { accessToken } = response.data;
+  localStorage.setItem(tokenKey, accessToken);
+  return accessToken;
+}
+
+// ---------------------------------------------------------------------------
+// Request interceptor — attach Authorization header
+// ---------------------------------------------------------------------------
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem(tokenKey);
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
+  const token = getToken();
+  if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
+// ---------------------------------------------------------------------------
+// Response interceptor — handle 401 (refresh / logout) + network errors
+// ---------------------------------------------------------------------------
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response && error.response.status === 401) {
-      localStorage.removeItem(tokenKey);
-      localStorage.removeItem(userKey);
-      localStorage.removeItem(workspaceKey);
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
+  async (error) => {
+    const originalRequest = error.config;
+
+    // Network error (no response) — show toast
+    if (!error.response) {
+      dispatchNetworkToast('Network error — please check your connection.');
+      return Promise.reject(error);
+    }
+
+    const { status, data } = error.response;
+    const code = data?.error?.code;
+
+    // -----------------------------------------------------------------------
+    // 401 TOKEN_EXPIRED — attempt silent refresh (once per request)
+    // -----------------------------------------------------------------------
+    if (status === 401 && code === 'TOKEN_EXPIRED' && !originalRequest._retried) {
+      originalRequest._retried = true;
+
+      if (isRefreshing) {
+        // Queue this request until the ongoing refresh completes
+        return new Promise((resolve, reject) => {
+          pendingQueue.push({ resolve, reject });
+        })
+          .then((token) => {
+            originalRequest.headers.Authorization = `Bearer ${token}`;
+            return api(originalRequest);
+          })
+          .catch(Promise.reject);
+      }
+
+      isRefreshing = true;
+      try {
+        const newToken = await refreshAccessToken();
+        processQueue(null, newToken);
+        originalRequest.headers.Authorization = `Bearer ${newToken}`;
+        return api(originalRequest);
+      } catch (refreshError) {
+        processQueue(refreshError, null);
+        clearSession();
+        if (window.location.pathname !== '/login') window.location.href = '/login';
+        return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
       }
     }
+
+    // -----------------------------------------------------------------------
+    // 401 UNAUTHORIZED — session is invalid; clear and redirect
+    // -----------------------------------------------------------------------
+    if (status === 401 && !originalRequest._retried) {
+      clearSession();
+      if (window.location.pathname !== '/login') window.location.href = '/login';
+    }
+
     return Promise.reject(error);
   }
 );
 
-export const storageKeys = {
-  tokenKey,
-  userKey,
-  workspaceKey
-};
+// ---------------------------------------------------------------------------
+// API function library — all paths use API_PREFIX for versioning
+// ---------------------------------------------------------------------------
 
-export function registerUser(payload, inviteToken) {
-  return api.post(`/api/auth/register${inviteToken ? `?inviteToken=${inviteToken}` : ''}`, payload);
-}
+const p = (path) => `${API_PREFIX}${path}`;
 
-export function loginUser(payload, inviteToken) {
-  return api.post(`/api/auth/login${inviteToken ? `?inviteToken=${inviteToken}` : ''}`, payload);
-}
+// Auth
+export const registerUser = (payload, inviteToken) =>
+  api.post(`${p('/auth/register')}${inviteToken ? `?inviteToken=${inviteToken}` : ''}`, payload);
+export const loginUser = (payload, inviteToken) =>
+  api.post(`${p('/auth/login')}${inviteToken ? `?inviteToken=${inviteToken}` : ''}`, payload);
+export const fetchMe = () => api.get(p('/auth/me'));
+export const refreshToken = () => api.post(p('/auth/refresh'));
+export const logoutUser = () => api.post(p('/auth/logout'));
+export const fetchCsrfToken = () => api.get(p('/auth/csrf-token'));
 
-export function fetchMe() {
-  return api.get('/api/auth/me');
-}
+// Profile
+export const updateProfile = (payload) => api.patch(p('/auth/me'), payload);
+export const changePassword = (payload) => api.patch(p('/auth/me/password'), payload);
 
-export function fetchWorkspaces() {
-  return api.get('/api/workspaces');
-}
+// Workspaces
+export const fetchWorkspaces = () => api.get(p('/workspaces'));
+export const createWorkspace = (payload) => api.post(p('/workspaces'), payload);
+export const getWorkspace = (workspaceId) => api.get(p(`/workspaces/${workspaceId}`));
+export const updateWorkspace = (workspaceId, payload) =>
+  api.patch(p(`/workspaces/${workspaceId}`), payload);
+export const deleteWorkspace = (workspaceId) => api.delete(p(`/workspaces/${workspaceId}`));
+export const fetchWorkspaceStats = (workspaceId) => api.get(p(`/workspaces/${workspaceId}/stats`));
+export const fetchWorkspaceActivity = (workspaceId, params = {}) =>
+  api.get(p(`/workspaces/${workspaceId}/activity`), { params });
 
-export function createWorkspace(payload) {
-  return api.post('/api/workspaces', payload);
-}
+// Invite
+export const createInvite = (workspaceId, payload) =>
+  api.post(p(`/workspaces/${workspaceId}/invite`), payload);
+export const getInviteInfo = (token) => api.get(p(`/workspaces/join/${token}`));
+export const joinInvite = (workspaceToken) => api.post(p(`/workspaces/join/${workspaceToken}`));
 
-export function getWorkspace(workspaceId) {
-  return api.get(`/api/workspaces/${workspaceId}`);
-}
+// Members
+export const fetchMembers = (workspaceId) => api.get(p(`/workspaces/${workspaceId}/members`));
+export const updateMemberRole = (workspaceId, userId, payload) =>
+  api.patch(p(`/workspaces/${workspaceId}/members/${userId}`), payload);
+export const removeMember = (workspaceId, userId) =>
+  api.delete(p(`/workspaces/${workspaceId}/members/${userId}`));
+export const leaveWorkspace = (workspaceId) => api.delete(p(`/workspaces/${workspaceId}/leave`));
 
-export function updateWorkspace(workspaceId, payload) {
-  return api.patch(`/api/workspaces/${workspaceId}`, payload);
-}
+// Boards
+export const fetchWorkspaceBoards = (workspaceId) =>
+  api.get(p(`/workspaces/${workspaceId}/boards`));
+export const createBoard = (workspaceId, payload) =>
+  api.post(p(`/workspaces/${workspaceId}/boards`), payload);
+export const getBoard = (workspaceId, boardId) =>
+  api.get(p(`/workspaces/${workspaceId}/boards/${boardId}`));
+export const updateBoard = (workspaceId, boardId, payload) =>
+  api.patch(p(`/workspaces/${workspaceId}/boards/${boardId}`), payload);
+export const deleteBoard = (workspaceId, boardId) =>
+  api.delete(p(`/workspaces/${workspaceId}/boards/${boardId}`));
 
-export function deleteWorkspace(workspaceId) {
-  return api.delete(`/api/workspaces/${workspaceId}`);
-}
+// Tasks — these are accessed via the board endpoint
+export const createTask = (workspaceId, boardId, payload) =>
+  api.post(p(`/workspaces/${workspaceId}/boards/${boardId}/tasks`), payload);
+export const updateTask = (workspaceId, boardId, taskId, payload) =>
+  api.patch(p(`/workspaces/${workspaceId}/boards/${boardId}/tasks/${taskId}`), payload);
+export const deleteTask = (workspaceId, boardId, taskId) =>
+  api.delete(p(`/workspaces/${workspaceId}/boards/${boardId}/tasks/${taskId}`));
+export const reorderTask = (workspaceId, boardId, payload) =>
+  api.patch(p(`/workspaces/${workspaceId}/boards/${boardId}/tasks/reorder`), payload);
 
-export function fetchWorkspaceBoards(workspaceId) {
-  return api.get(`/api/workspaces/${workspaceId}/boards`);
-}
+// Comments
+export const fetchTaskComments = (workspaceId, taskId) =>
+  api.get(p(`/workspaces/${workspaceId}/tasks/${taskId}/comments`));
+export const createTaskComment = (workspaceId, taskId, payload) =>
+  api.post(p(`/workspaces/${workspaceId}/tasks/${taskId}/comments`), payload);
+export const updateTaskComment = (workspaceId, taskId, commentId, payload) =>
+  api.patch(p(`/workspaces/${workspaceId}/tasks/${taskId}/comments/${commentId}`), payload);
+export const deleteTaskComment = (workspaceId, taskId, commentId) =>
+  api.delete(p(`/workspaces/${workspaceId}/tasks/${taskId}/comments/${commentId}`));
 
-export function createInvite(workspaceId, payload) {
-  return api.post(`/api/workspaces/${workspaceId}/invite`, payload);
-}
+// Notifications
+export const fetchNotifications = () => api.get(p('/notifications'));
+export const fetchUnreadNotificationCount = () => api.get(p('/notifications/unread-count'));
+export const markNotificationRead = (notificationId) =>
+  api.patch(p(`/notifications/${notificationId}/read`));
+export const markAllNotificationsRead = () => api.patch(p('/notifications/read-all'));
 
-export function getInviteInfo(token) {
-  return api.get(`/api/workspaces/join/${token}`);
-}
-
-export function joinInvite(workspaceToken) {
-  return api.post(`/api/workspaces/join/${workspaceToken}`);
-}
-
-export function fetchMembers(workspaceId) {
-  return api.get(`/api/workspaces/${workspaceId}/members`);
-}
-
-export function updateMemberRole(workspaceId, userId, payload) {
-  return api.patch(`/api/workspaces/${workspaceId}/members/${userId}`, payload);
-}
-
-export function removeMember(workspaceId, userId) {
-  return api.delete(`/api/workspaces/${workspaceId}/members/${userId}`);
-}
-
-export function leaveWorkspace(workspaceId) {
-  return api.delete(`/api/workspaces/${workspaceId}/leave`);
-}
-
-export function fetchWorkspaceStats(workspaceId) {
-  return api.get(`/api/workspaces/${workspaceId}/stats`);
-}
-
-export function fetchWorkspaceActivity(workspaceId, params = {}) {
-  return api.get(`/api/workspaces/${workspaceId}/activity`, { params });
-}
-
-export function fetchTaskComments(workspaceId, taskId) {
-  return api.get(`/api/workspaces/${workspaceId}/tasks/${taskId}/comments`);
-}
-
-export function createTaskComment(workspaceId, taskId, payload) {
-  return api.post(`/api/workspaces/${workspaceId}/tasks/${taskId}/comments`, payload);
-}
-
-export function updateTaskComment(workspaceId, taskId, commentId, payload) {
-  return api.patch(`/api/workspaces/${workspaceId}/tasks/${taskId}/comments/${commentId}`, payload);
-}
-
-export function deleteTaskComment(workspaceId, taskId, commentId) {
-  return api.delete(`/api/workspaces/${workspaceId}/tasks/${taskId}/comments/${commentId}`);
-}
-
-export function fetchNotifications() {
-  return api.get('/api/notifications');
-}
-
-export function fetchUnreadNotificationCount() {
-  return api.get('/api/notifications/unread-count');
-}
-
-export function markNotificationRead(notificationId) {
-  return api.patch(`/api/notifications/${notificationId}/read`);
-}
-
-export function markAllNotificationsRead() {
-  return api.patch('/api/notifications/read-all');
-}
-
-export function updateProfile(payload) {
-  return api.patch('/api/auth/me', payload);
-}
-
-export function changePassword(payload) {
-  return api.patch('/api/auth/me/password', payload);
-}
-
-export function generateSprintReport(workspaceId, payload) {
-  return api.post(`/api/workspaces/${workspaceId}/ai/sprint-report`, payload);
-}
-
-export function generateStandup(workspaceId) {
-  return api.post(`/api/workspaces/${workspaceId}/ai/standup`);
-}
-
-export function suggestAssignee(workspaceId, payload) {
-  return api.post(`/api/workspaces/${workspaceId}/ai/suggest-assignee`, payload);
-}
-
-export function generateTaskDescription(workspaceId, payload) {
-  return api.post(`/api/workspaces/${workspaceId}/ai/task-description`, payload);
-}
+// AI
+export const generateSprintReport = (workspaceId, payload) =>
+  api.post(p(`/workspaces/${workspaceId}/ai/sprint-report`), payload);
+export const generateStandup = (workspaceId) =>
+  api.post(p(`/workspaces/${workspaceId}/ai/standup`), {});
+export const suggestAssignee = (workspaceId, payload) =>
+  api.post(p(`/workspaces/${workspaceId}/ai/suggest-assignee`), payload);
+export const generateTaskDescription = (workspaceId, payload) =>
+  api.post(p(`/workspaces/${workspaceId}/ai/task-description`), payload);

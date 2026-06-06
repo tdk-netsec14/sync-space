@@ -1,44 +1,82 @@
 const express = require('express');
+
 const Notification = require('../models/Notification');
 const authMiddleware = require('../middleware/authMiddleware');
+const asyncHandler = require('../utils/asyncHandler');
+const { parsePaginationQuery, applyCursor, buildMeta } = require('../utils/paginate');
 
 const router = express.Router();
 
-router.get('/', authMiddleware, async (req, res) => {
-  try {
-    const notifications = await Notification.find({ userId: req.user.id }).sort({ createdAt: -1 }).limit(30);
-    return res.json({ notifications });
-  } catch (err) {
-    return res.status(500).json({ error: 'Something went wrong' });
-  }
-});
+// ---------------------------------------------------------------------------
+// GET /api/notifications
+//
+// Cursor-based pagination via ?before=<ISO-date>&limit=<n>
+// Default: 20, max: 100
+// ---------------------------------------------------------------------------
 
-router.patch('/:id/read', authMiddleware, async (req, res) => {
-  try {
-    const updated = await Notification.findOneAndUpdate({ _id: req.params.id, userId: req.user.id }, { read: true }, { new: true });
-    if (!updated) return res.status(404).json({ error: 'Not found' });
-    return res.json({ notification: updated });
-  } catch (err) {
-    return res.status(500).json({ error: 'Something went wrong' });
-  }
-});
+router.get(
+  '/',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const { limit, before } = parsePaginationQuery(req.query);
+    const filter = applyCursor({ before, after: null }, { userId: req.user.id });
 
-router.patch('/read-all', authMiddleware, async (req, res) => {
-  try {
+    const notifications = await Notification.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    const meta = buildMeta(notifications, { limit });
+
+    return res.json({ success: true, notifications, ...meta });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// GET /api/notifications/unread-count
+// ---------------------------------------------------------------------------
+
+router.get(
+  '/unread-count',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const count = await Notification.countDocuments({ userId: req.user.id, read: false });
+    return res.json({ success: true, count });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// PATCH /api/notifications/read-all
+// ---------------------------------------------------------------------------
+
+router.patch(
+  '/read-all',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
     await Notification.updateMany({ userId: req.user.id, read: false }, { read: true });
     return res.json({ success: true });
-  } catch (err) {
-    return res.status(500).json({ error: 'Something went wrong' });
-  }
-});
+  })
+);
 
-router.get('/unread-count', authMiddleware, async (req, res) => {
-  try {
-    const count = await Notification.countDocuments({ userId: req.user.id, read: false });
-    return res.json({ count });
-  } catch (err) {
-    return res.status(500).json({ error: 'Something went wrong' });
-  }
-});
+// ---------------------------------------------------------------------------
+// PATCH /api/notifications/:id/read
+// ---------------------------------------------------------------------------
+
+router.patch(
+  '/:id/read',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const updated = await Notification.findOneAndUpdate(
+      { _id: req.params.id, userId: req.user.id },
+      { read: true },
+      { new: true, lean: true }
+    );
+    if (!updated)
+      return res
+        .status(404)
+        .json({ success: false, error: { code: 'NOT_FOUND', message: 'Not found' } });
+    return res.json({ success: true, notification: updated });
+  })
+);
 
 module.exports = router;

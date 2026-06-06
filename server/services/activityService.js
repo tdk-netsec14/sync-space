@@ -14,6 +14,16 @@ function serializeUser(user) {
   };
 }
 
+/**
+ * Logs a single activity event within a workspace and emits a realtime socket event.
+ *
+ * @param {string} workspaceId - The ID of the workspace where the event occurred.
+ * @param {string} userId - The ID of the user performing the action.
+ * @param {string} type - The specific action type (e.g., 'task_created').
+ * @param {string} description - Human-readable description of the activity.
+ * @param {Object} [metadata={}] - Optional metadata regarding the event.
+ * @returns {Promise<Object>} The saved ActivityLog document.
+ */
 async function logActivity(workspaceId, userId, type, description, metadata = {}) {
   const activity = await ActivityLog.create({ workspaceId, userId, type, description, metadata });
 
@@ -42,6 +52,16 @@ async function logActivity(workspaceId, userId, type, description, metadata = {}
   return activity;
 }
 
+/**
+ * Creates an in-app notification for a user and emits a realtime socket event.
+ *
+ * @param {string} userId - The target user receiving the notification.
+ * @param {string} workspaceId - The relevant workspace ID.
+ * @param {string} type - The notification type (e.g., 'mention').
+ * @param {string} message - Human-readable message content.
+ * @param {string} [link=''] - Optional URL or route to navigate to on click.
+ * @returns {Promise<Object>} The saved Notification document.
+ */
 async function notifyUser(userId, workspaceId, type, message, link = '') {
   const notification = await Notification.create({ userId, workspaceId, type, message, link, read: false });
   const payload = {

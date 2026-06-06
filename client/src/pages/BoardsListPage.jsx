@@ -4,7 +4,7 @@ import { Menu, Plus, Compass } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
 import BoardCard from '../components/BoardCard';
 import BoardModal from '../components/BoardModal';
-import LoadingSkeleton from '../components/LoadingSkeleton';
+import { BoardListSkeleton } from '../components/SkeletonScreens';
 import { api } from '../services/api';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -22,17 +22,14 @@ export default function BoardsListPage() {
     async function load() {
       try {
         const [workspaceResponse, boardsResponse] = await Promise.all([
-          api.get(`/api/workspaces/${workspaceId}`),
-          api.get(`/api/workspaces/${workspaceId}/boards`)
+          api.get(`/api/v1/workspaces/${workspaceId}`),
+          api.get(`/api/v1/workspaces/${workspaceId}/boards`)
         ]);
-
         if (!active) return;
         setWorkspace(workspaceResponse.data.workspace);
         setBoards(boardsResponse.data.boards || []);
       } finally {
-        if (active) {
-          setLoading(false);
-        }
+        if (active) setLoading(false);
       }
     }
 
@@ -44,7 +41,7 @@ export default function BoardsListPage() {
   }, [workspaceId]);
 
   async function handleCreateBoard(payload) {
-    const response = await api.post(`/api/workspaces/${workspaceId}/boards`, payload);
+    const response = await api.post(`/api/v1/workspaces/${workspaceId}/boards`, payload);
     setBoards((current) => [response.data.board, ...current]);
     setShowModal(false);
   }
@@ -52,9 +49,14 @@ export default function BoardsListPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-brand-offwhite dot-grid relative flex">
-        <Sidebar workspace={workspace} workspaceId={workspaceId} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+        <Sidebar
+          workspace={workspace}
+          workspaceId={workspaceId}
+          isOpen={isSidebarOpen}
+          onClose={() => setIsSidebarOpen(false)}
+        />
         <main className="flex-1 p-6 md:ml-[260px] md:p-10 max-w-7xl mx-auto w-full">
-          <LoadingSkeleton />
+          <BoardListSkeleton />
         </main>
       </div>
     );
@@ -62,39 +64,46 @@ export default function BoardsListPage() {
 
   return (
     <div className="min-h-screen bg-brand-offwhite text-brand-black relative dot-grid flex overflow-x-hidden">
-      
       {/* Sidebar Navigation */}
-      <Sidebar workspace={workspace} workspaceId={workspaceId} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
-      
+      <Sidebar
+        workspace={workspace}
+        workspaceId={workspaceId}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+      />
+
       {/* Sprint Tracks Canvas */}
       <main className="flex-1 p-6 md:ml-[260px] md:p-10 max-w-7xl mx-auto w-full transition-all">
-        
         {/* Editorial Header Block */}
         <div className="mb-10 flex flex-col items-start justify-between gap-6 border-b border-brand-black/10 pb-8 md:flex-row md:items-center">
           <div className="flex items-center gap-4 min-w-0">
-            <button 
-              type="button" 
-              onClick={() => setIsSidebarOpen(true)} 
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen(true)}
               className="rounded-xl border-editorial bg-white p-3 text-brand-black md:hidden hover:bg-brand-beige transition-all shadow-editorial-sm shrink-0"
             >
               <Menu className="h-5 w-5" />
             </button>
             <div className="min-w-0">
-              <span className="text-[9px] font-black uppercase tracking-widest text-brand-black/45 block font-sans-editorial">Sprint sequences</span>
-              <h1 className="font-editorial text-4xl sm:text-5xl font-black text-brand-black leading-none uppercase mt-1 truncate">Sprint Tracks</h1>
+              <span className="text-[9px] font-black uppercase tracking-widest text-brand-black/45 block font-sans-editorial">
+                Sprint sequences
+              </span>
+              <h1 className="font-editorial text-4xl sm:text-5xl font-black text-brand-black leading-none uppercase mt-1 truncate">
+                Sprint Tracks
+              </h1>
               <p className="mt-2.5 text-xs font-sans-editorial font-bold text-brand-black/45 leading-relaxed">
                 Deploy modular Kanban boards to sequence task flows and milestone tracks.
               </p>
             </div>
           </div>
-          
+
           <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="shrink-0">
-            <button 
-              type="button" 
-              onClick={() => setShowModal(true)} 
+            <button
+              type="button"
+              onClick={() => setShowModal(true)}
               className="inline-flex items-center gap-2 rounded-full bg-brand-yellow border-editorial px-5 py-3.5 text-xs font-editorial font-bold text-brand-black shadow-editorial hover:bg-[#ffcf29] transition-all cursor-pointer"
             >
-              <Plus className="h-4 w-4 text-brand-black" /> 
+              <Plus className="h-4 w-4 text-brand-black" />
               <span>Create Track</span>
             </button>
           </motion.div>
@@ -103,7 +112,7 @@ export default function BoardsListPage() {
         {/* Tracks List Grid */}
         <AnimatePresence mode="wait">
           {boards.length > 0 ? (
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -15 }}
@@ -115,7 +124,7 @@ export default function BoardsListPage() {
               ))}
             </motion.div>
           ) : (
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               className="border-editorial bg-white p-12 text-center max-w-lg mx-auto shadow-editorial rounded-3xl mt-12 relative overflow-hidden"
@@ -124,17 +133,23 @@ export default function BoardsListPage() {
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-brand-lavender/35 border border-brand-black/10 mb-4">
                 <Compass className="h-6 w-6 text-brand-purple" />
               </div>
-              <h3 className="font-editorial text-sm font-bold uppercase tracking-widest text-brand-black">No active tracks found</h3>
+              <h3 className="font-editorial text-sm font-bold uppercase tracking-widest text-brand-black">
+                No active tracks found
+              </h3>
               <p className="text-xs font-sans-editorial font-bold text-brand-black/45 mt-2 leading-relaxed">
                 Initialize your collaborative space by deploying a new Kanban sprint board.
               </p>
-              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="mt-6 inline-block">
-                <button 
-                  type="button" 
-                  onClick={() => setShowModal(true)} 
+              <motion.div
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="mt-6 inline-block"
+              >
+                <button
+                  type="button"
+                  onClick={() => setShowModal(true)}
                   className="inline-flex items-center gap-2 rounded-full bg-brand-black border-editorial px-5 py-3 text-xs font-editorial font-bold text-brand-yellow hover:bg-brand-black/90 cursor-pointer shadow-editorial-sm transition-all"
                 >
-                  <Plus className="h-4 w-4" /> 
+                  <Plus className="h-4 w-4" />
                   <span>Create First Track</span>
                 </button>
               </motion.div>
@@ -142,7 +157,9 @@ export default function BoardsListPage() {
           )}
         </AnimatePresence>
 
-        {showModal && <BoardModal onClose={() => setShowModal(false)} onCreate={handleCreateBoard} />}
+        {showModal && (
+          <BoardModal onClose={() => setShowModal(false)} onCreate={handleCreateBoard} />
+        )}
       </main>
     </div>
   );

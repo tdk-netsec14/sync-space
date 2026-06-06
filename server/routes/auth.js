@@ -1,318 +1,472 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { z } = require('zod');
 
 const User = require('../models/User');
 const Member = require('../models/Member');
-const Workspace = require('../models/Workspace');
 const InviteToken = require('../models/InviteToken');
 const authMiddleware = require('../middleware/authMiddleware');
+const validate = require('../middleware/validate');
+const asyncHandler = require('../utils/asyncHandler');
+const logger = require('../utils/logger');
+const { generateCsrfToken, doubleCsrfProtection } = require('../middleware/security');
 
 const router = express.Router();
 
-function createToken(user) {
-  return jwt.sign({ id: user._id.toString(), name: user.name, email: user.email }, process.env.JWT_SECRET, {
-    expiresIn: '7d'
+// ---------------------------------------------------------------------------
+// Helpers — IP extraction
+// ---------------------------------------------------------------------------
+
+function getIP(req) {
+  return (
+    req.ip ||
+    req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+    req.socket?.remoteAddress ||
+    'unknown'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Zod schemas
+// ---------------------------------------------------------------------------
+
+const STRONG_PASSWORD = z
+  .string()
+  .min(8, 'Password must be at least 8 characters')
+  .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+  .regex(/[0-9]/, 'Password must contain at least one number')
+  .regex(
+    /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/,
+    'Password must contain at least one special character'
+  );
+
+const registerSchema = z.object({
+  name: z.string().trim().min(2, 'Name must be at least 2 characters').max(100, 'Name is too long'),
+  email: z.string().trim().toLowerCase().email('Invalid email format'),
+  password: STRONG_PASSWORD
+});
+
+const loginSchema = z.object({
+  email: z.string().trim().toLowerCase().email('Invalid email format'),
+  password: z.string().min(1, 'Password is required')
+});
+
+const updateProfileSchema = z
+  .object({
+    name: z.string().trim().min(1, 'Name is required').max(100, 'Name is too long').optional(),
+    avatar: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/, 'Invalid avatar color')
+      .optional()
+  })
+  .strict();
+
+const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, 'Current password is required'),
+    newPassword: STRONG_PASSWORD,
+    confirmPassword: z.string().min(1, 'Confirm password is required')
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword']
+  });
+
+// ---------------------------------------------------------------------------
+// Cookie helpers
+// ---------------------------------------------------------------------------
+
+const REFRESH_COOKIE = 'syncspace_refresh';
+const REFRESH_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+
+function getRefreshCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: REFRESH_EXPIRY_MS,
+    path: '/'
+  };
+}
+
+function clearRefreshCookie(res) {
+  res.clearCookie(REFRESH_COOKIE, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/'
   });
 }
 
-function isValidEmail(email) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').toLowerCase());
+// ---------------------------------------------------------------------------
+// Token creation
+// ---------------------------------------------------------------------------
+
+function createAccessToken(user) {
+  const secret = process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET;
+  return jwt.sign({ id: user._id.toString(), name: user.name, email: user.email }, secret, {
+    expiresIn: '15m'
+  });
 }
+
+function createRefreshToken(user) {
+  const secret = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET;
+  return jwt.sign({ id: user._id.toString() }, secret, { expiresIn: '7d' });
+}
+
+// ---------------------------------------------------------------------------
+// Misc helpers
+// ---------------------------------------------------------------------------
 
 function avatarColor(seed) {
   let hash = 0;
   const value = String(seed || 'syncspace');
-  for (let index = 0; index < value.length; index += 1) {
-    hash = value.charCodeAt(index) + ((hash << 5) - hash);
+  for (let i = 0; i < value.length; i += 1) {
+    hash = value.charCodeAt(i) + ((hash << 5) - hash);
   }
-  const color = (hash >>> 0).toString(16).slice(-6).padStart(6, '0');
-  return `#${color}`;
+  return `#${(hash >>> 0).toString(16).slice(-6).padStart(6, '0')}`;
 }
 
 function serializeUser(user) {
-  return {
-    id: user._id,
-    name: user.name,
-    email: user.email,
-    avatar: user.avatar
-  };
+  return { id: user._id, name: user.name, email: user.email, avatar: user.avatar };
 }
 
-async function consumeInviteToken(inviteTokenValue, userId) {
-  const invite = await InviteToken.findOne({ token: inviteTokenValue }).populate('workspaceId');
-
-  if (!invite) {
-    return { error: 'invalid' };
-  }
-
+async function consumeInviteToken(rawToken, userId) {
+  const invite = await InviteToken.findByRawToken(rawToken).populate('workspaceId');
+  if (!invite) return { error: 'invalid' };
   const now = new Date();
+  if (invite.usedAt) return { error: 'used' };
+  if (invite.expiresAt.getTime() <= now.getTime()) return { error: 'expired' };
 
-  if (invite.usedAt) {
-    return { error: 'used' };
-  }
-
-  if (invite.expiresAt.getTime() <= now.getTime()) {
-    return { error: 'expired' };
-  }
-
-  const member = await Member.create({
-    workspaceId: invite.workspaceId._id,
-    userId,
-    role: invite.role
-  });
-
+  await Member.create({ workspaceId: invite.workspaceId._id, userId, role: invite.role });
   invite.usedAt = now;
   invite.usedBy = userId;
   await invite.save();
-
-  return { invite, member };
+  return { invite };
 }
 
-router.post('/register', async (req, res) => {
-  try {
+// ---------------------------------------------------------------------------
+// CSRF token endpoint — must come BEFORE doubleCsrfProtection
+// ---------------------------------------------------------------------------
+
+router.get('/csrf-token', (req, res) => {
+  const token = generateCsrfToken(req, res);
+  return res.json({ csrfToken: token });
+});
+
+// Apply CSRF to all mutating routes below
+router.use(doubleCsrfProtection);
+
+// ---------------------------------------------------------------------------
+// POST /api/auth/register
+// ---------------------------------------------------------------------------
+
+router.post(
+  '/register',
+  validate(registerSchema),
+  asyncHandler(async (req, res) => {
     const { name, email, password } = req.body;
     const inviteTokenValue = req.query.inviteToken;
+    const ip = getIP(req);
 
-    if (!name || !email || !password) {
-      return res.status(400).json({ error: 'All fields are required' });
-    }
-
-    if (!isValidEmail(email)) {
-      return res.status(400).json({ error: 'Invalid email format' });
-    }
-
-    if (String(password).length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
-    }
-
-    const existingUser = await User.findOne({ email: String(email).toLowerCase().trim() });
-
+    const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return res.status(409).json({ error: 'Email already registered' });
+      logger.warn('Registration failed — email already exists', { ip, email });
+      return res.status(409).json({
+        success: false,
+        error: { code: 'CONFLICT', message: 'Email already registered' }
+      });
     }
 
     if (inviteTokenValue) {
-      const invite = await InviteToken.findOne({ token: inviteTokenValue });
-
-      if (!invite) {
-        return res.status(400).json({ error: 'Invalid invite token' });
-      }
-
-      if (invite.usedAt) {
-        return res.status(400).json({ error: 'Invite token already used' });
-      }
-
-      if (invite.expiresAt.getTime() <= Date.now()) {
-        return res.status(400).json({ error: 'Invite token expired' });
-      }
+      const invite = await InviteToken.findByRawToken(inviteTokenValue);
+      if (!invite)
+        return res.status(400).json({
+          success: false,
+          error: { code: 'BAD_REQUEST', message: 'Invalid invite token' }
+        });
+      if (invite.usedAt)
+        return res.status(400).json({
+          success: false,
+          error: { code: 'BAD_REQUEST', message: 'Invite token already used' }
+        });
+      if (invite.expiresAt.getTime() <= Date.now())
+        return res.status(400).json({
+          success: false,
+          error: { code: 'BAD_REQUEST', message: 'Invite token expired' }
+        });
     }
 
-    const user = await User.create({
-      name: String(name).trim(),
-      email: String(email).toLowerCase().trim(),
-      password,
-      avatar: avatarColor(email)
-    });
+    const user = await User.create({ name, email, password, avatar: avatarColor(email) });
 
     if (inviteTokenValue) {
       const inviteResult = await consumeInviteToken(inviteTokenValue, user._id);
-
       if (inviteResult.error) {
         await User.deleteOne({ _id: user._id });
-        return res.status(400).json({ error: `Invite token ${inviteResult.error}` });
+        return res.status(400).json({
+          success: false,
+          error: { code: 'BAD_REQUEST', message: `Invite token ${inviteResult.error}` }
+        });
       }
     }
 
-    const token = createToken(user);
+    const accessToken = createAccessToken(user);
+    const refreshToken = createRefreshToken(user);
+    res.cookie(REFRESH_COOKIE, refreshToken, getRefreshCookieOptions());
 
-    return res.status(201).json({
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar
-      }
-    });
-  } catch (error) {
-    if (error && error.code === 11000) {
-      return res.status(409).json({ error: 'Already exists' });
-    }
+    logger.info('User registered', { userId: user._id, ip });
 
-    return res.status(500).json({ error: 'Something went wrong' });
-  }
-});
+    return res.status(201).json({ success: true, token: accessToken, user: serializeUser(user) });
+  })
+);
 
-router.post('/login', async (req, res) => {
-  try {
+// ---------------------------------------------------------------------------
+// POST /api/auth/login
+// ---------------------------------------------------------------------------
+
+router.post(
+  '/login',
+  validate(loginSchema),
+  asyncHandler(async (req, res) => {
     const { email, password } = req.body;
     const inviteTokenValue = req.query.inviteToken;
-
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
-    }
+    const ip = getIP(req);
 
     if (inviteTokenValue) {
-      const invite = await InviteToken.findOne({ token: inviteTokenValue });
-
-      if (!invite) {
-        return res.status(400).json({ error: 'Invalid invite token' });
-      }
-
-      if (invite.usedAt) {
-        return res.status(400).json({ error: 'Invite token already used' });
-      }
-
-      if (invite.expiresAt.getTime() <= Date.now()) {
-        return res.status(400).json({ error: 'Invite token expired' });
-      }
+      const invite = await InviteToken.findByRawToken(inviteTokenValue);
+      if (!invite)
+        return res.status(400).json({
+          success: false,
+          error: { code: 'BAD_REQUEST', message: 'Invalid invite token' }
+        });
+      if (invite.usedAt)
+        return res.status(400).json({
+          success: false,
+          error: { code: 'BAD_REQUEST', message: 'Invite token already used' }
+        });
+      if (invite.expiresAt.getTime() <= Date.now())
+        return res.status(400).json({
+          success: false,
+          error: { code: 'BAD_REQUEST', message: 'Invite token expired' }
+        });
     }
 
-    const user = await User.findOne({ email: String(email).toLowerCase().trim() }).select('+password');
+    const user = await User.findOne({ email }).select('+password +loginAttempts +lockUntil');
 
     if (!user) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+      logger.warn('Login failed — user not found', { ip, email });
+      return res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: 'Invalid email or password' }
+      });
+    }
+
+    // Account lockout check
+    if (user.isLocked()) {
+      const waitMinutes = Math.ceil((user.lockUntil.getTime() - Date.now()) / 60000);
+      logger.warn('Login blocked — account locked', { ip, userId: user._id });
+      return res.status(423).json({
+        success: false,
+        error: {
+          code: 'ACCOUNT_LOCKED',
+          message: `Account temporarily locked. Try again in ${waitMinutes} minute${waitMinutes !== 1 ? 's' : ''}.`
+        }
+      });
     }
 
     const passwordMatches = await bcrypt.compare(String(password), user.password);
 
     if (!passwordMatches) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+      await user.incrementLoginAttempts();
+      const attemptsLeft = Math.max(0, 5 - (user.loginAttempts + 1));
+      const locked = attemptsLeft === 0;
+      logger.warn('Login failed — wrong password', { ip, userId: user._id, attemptsLeft, locked });
+      const message = locked
+        ? 'Invalid email or password. Account is now locked for 15 minutes.'
+        : `Invalid email or password. ${attemptsLeft} attempt${attemptsLeft !== 1 ? 's' : ''} remaining before lockout.`;
+      return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message } });
     }
 
+    await user.resetLoginAttempts();
+
     if (inviteTokenValue) {
-      const invite = await InviteToken.findOne({ token: inviteTokenValue });
+      const invite = await InviteToken.findByRawToken(inviteTokenValue);
       if (invite) {
-        const existingMember = await Member.findOne({ workspaceId: invite.workspaceId, userId: user._id });
+        const existingMember = await Member.findOne({
+          workspaceId: invite.workspaceId,
+          userId: user._id
+        });
         if (!existingMember) {
           const inviteResult = await consumeInviteToken(inviteTokenValue, user._id);
           if (inviteResult.error) {
-            return res.status(400).json({ error: `Invite token ${inviteResult.error}` });
+            return res.status(400).json({
+              success: false,
+              error: { code: 'BAD_REQUEST', message: `Invite token ${inviteResult.error}` }
+            });
           }
         }
       }
     }
 
-    const token = createToken(user);
+    const accessToken = createAccessToken(user);
+    const refreshToken = createRefreshToken(user);
+    res.cookie(REFRESH_COOKIE, refreshToken, getRefreshCookieOptions());
 
-    return res.json({
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar
-      }
-    });
-  } catch (error) {
-    return res.status(500).json({ error: 'Something went wrong' });
-  }
+    logger.info('Login successful', { userId: user._id, ip });
+
+    return res.json({ success: true, token: accessToken, user: serializeUser(user) });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// POST /api/auth/refresh
+// ---------------------------------------------------------------------------
+
+router.post(
+  '/refresh',
+  asyncHandler(async (req, res) => {
+    const ip = getIP(req);
+    const rawRefreshToken = req.cookies?.[REFRESH_COOKIE];
+
+    if (!rawRefreshToken) {
+      logger.warn('Token refresh failed — no cookie', { ip });
+      return res
+        .status(401)
+        .json({ success: false, error: { code: 'UNAUTHORIZED', message: 'No refresh token' } });
+    }
+
+    const secret = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET;
+    const payload = jwt.verify(rawRefreshToken, secret); // throws on invalid/expired
+
+    const user = await User.findById(payload.id);
+    if (!user) {
+      clearRefreshCookie(res);
+      logger.warn('Token refresh failed — user not found', { ip, userId: payload.id });
+      return res
+        .status(401)
+        .json({ success: false, error: { code: 'UNAUTHORIZED', message: 'User not found' } });
+    }
+
+    const newAccessToken = createAccessToken(user);
+    const newRefreshToken = createRefreshToken(user);
+    res.cookie(REFRESH_COOKIE, newRefreshToken, getRefreshCookieOptions());
+
+    logger.info('Token refreshed', { userId: user._id, ip });
+
+    return res.json({ success: true, token: newAccessToken, user: serializeUser(user) });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// POST /api/auth/logout
+// ---------------------------------------------------------------------------
+
+router.post('/logout', (req, res) => {
+  const ip = getIP(req);
+  const userId = req.user?.id || null;
+  clearRefreshCookie(res);
+  logger.info('User logged out', { userId, ip });
+  return res.json({ success: true });
 });
 
-router.get('/me', authMiddleware, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.id);
+// ---------------------------------------------------------------------------
+// GET /api/auth/me
+// ---------------------------------------------------------------------------
 
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
+router.get(
+  '/me',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const user = await User.findById(req.user.id);
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, error: { code: 'NOT_FOUND', message: 'User not found' } });
 
     const memberships = await Member.find({ userId: user._id }).populate('workspaceId');
 
     return res.json({
+      success: true,
       user: serializeUser(user),
       memberships: memberships
-        .filter((membership) => membership.workspaceId)
-        .map((membership) => ({
-          id: membership._id,
-          role: membership.role,
+        .filter((m) => m.workspaceId)
+        .map((m) => ({
+          id: m._id,
+          role: m.role,
           workspace: {
-            id: membership.workspaceId._id,
-            name: membership.workspaceId.name,
-            slug: membership.workspaceId.slug,
-            description: membership.workspaceId.description,
-            logo: membership.workspaceId.logo,
-            color: membership.workspaceId.color,
-            ownerId: membership.workspaceId.ownerId,
-            createdAt: membership.workspaceId.createdAt
+            id: m.workspaceId._id,
+            name: m.workspaceId.name,
+            slug: m.workspaceId.slug,
+            description: m.workspaceId.description,
+            logo: m.workspaceId.logo,
+            color: m.workspaceId.color,
+            ownerId: m.workspaceId.ownerId,
+            createdAt: m.workspaceId.createdAt
           }
         }))
     });
-  } catch (error) {
-    return res.status(500).json({ error: 'Something went wrong' });
-  }
-});
+  })
+);
 
-router.patch('/me', authMiddleware, async (req, res) => {
-  try {
+// ---------------------------------------------------------------------------
+// PATCH /api/auth/me
+// ---------------------------------------------------------------------------
+
+router.patch(
+  '/me',
+  authMiddleware,
+  validate(updateProfileSchema),
+  asyncHandler(async (req, res) => {
     const user = await User.findById(req.user.id);
-
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, error: { code: 'NOT_FOUND', message: 'User not found' } });
 
     const { name, avatar } = req.body;
-
-    if (name !== undefined) {
-      const nextName = String(name).trim();
-      if (!nextName) {
-        return res.status(400).json({ error: 'Name is required' });
-      }
-      user.name = nextName;
-    }
-
-    if (avatar !== undefined) {
-      if (!/^#[0-9a-fA-F]{6}$/.test(String(avatar))) {
-        return res.status(400).json({ error: 'Invalid avatar color' });
-      }
-      user.avatar = String(avatar);
-    }
-
+    if (name !== undefined) user.name = name;
+    if (avatar !== undefined) user.avatar = avatar;
     await user.save();
 
-    const token = createToken(user);
+    const accessToken = createAccessToken(user);
+    return res.json({ success: true, token: accessToken, user: serializeUser(user) });
+  })
+);
 
-    return res.json({ token, user: serializeUser(user) });
-  } catch (error) {
-    return res.status(500).json({ error: 'Something went wrong' });
-  }
-});
+// ---------------------------------------------------------------------------
+// PATCH /api/auth/me/password
+// ---------------------------------------------------------------------------
 
-router.patch('/me/password', authMiddleware, async (req, res) => {
-  try {
-    const { currentPassword, newPassword, confirmPassword } = req.body;
-
-    if (!currentPassword || !newPassword || !confirmPassword) {
-      return res.status(400).json({ error: 'All password fields are required' });
-    }
-
-    if (String(newPassword).length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
-    }
-
-    if (String(newPassword) !== String(confirmPassword)) {
-      return res.status(400).json({ error: 'Passwords do not match' });
-    }
+router.patch(
+  '/me/password',
+  authMiddleware,
+  validate(changePasswordSchema),
+  asyncHandler(async (req, res) => {
+    const { currentPassword, newPassword } = req.body;
+    const ip = getIP(req);
 
     const user = await User.findById(req.user.id).select('+password');
-
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, error: { code: 'NOT_FOUND', message: 'User not found' } });
 
     const passwordMatches = await bcrypt.compare(String(currentPassword), user.password);
     if (!passwordMatches) {
-      return res.status(400).json({ error: 'Current password is incorrect' });
+      logger.warn('Password change failed — wrong current password', { userId: user._id, ip });
+      return res.status(400).json({
+        success: false,
+        error: { code: 'BAD_REQUEST', message: 'Current password is incorrect' }
+      });
     }
 
     user.password = String(newPassword);
     await user.save();
 
+    logger.info('Password changed', { userId: user._id, ip });
     return res.json({ success: true });
-  } catch (error) {
-    return res.status(500).json({ error: 'Something went wrong' });
-  }
-});
+  })
+);
 
 module.exports = router;

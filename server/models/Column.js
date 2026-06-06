@@ -12,6 +12,12 @@ const columnSchema = new mongoose.Schema(
   { versionKey: false }
 );
 
-columnSchema.index({ boardId: 1 });
+// ── Indexes ──────────────────────────────────────────────────────────────────
+
+// Primary: fetch all columns for a board in display order
+columnSchema.index({ boardId: 1, order: 1 });
+
+// Workspace-level cascade deletes
+columnSchema.index({ workspaceId: 1 });
 
 module.exports = mongoose.model('Column', columnSchema);

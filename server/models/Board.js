@@ -12,6 +12,9 @@ const boardSchema = new mongoose.Schema(
   { versionKey: false }
 );
 
-boardSchema.index({ workspaceId: 1 });
+// ── Indexes ──────────────────────────────────────────────────────────────────
+
+// Primary: list all boards in a workspace sorted by creation date
+boardSchema.index({ workspaceId: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Board', boardSchema);

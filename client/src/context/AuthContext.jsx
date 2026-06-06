@@ -41,7 +41,10 @@ export function AuthProvider({ children }) {
         if (error.response && (error.response.status === 401 || error.response.status === 403)) {
           logout();
         } else {
-          console.warn('Network connection to server failed. Retaining active session locally.', error);
+          console.warn(
+            'Network connection to server failed. Retaining active session locally.',
+            error
+          );
         }
       } finally {
         if (active) {

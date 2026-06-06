@@ -1,8 +1,12 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { Plus, ListTodo } from 'lucide-react';
 import { Droppable } from '@hello-pangea/dnd';
 
-export default function KanbanColumn({ column, children, onAddTask, isCreatingTask }) {
+/**
+ * KanbanColumn — memoized to prevent re-renders when sibling columns update.
+ * The column only re-renders when its own data (tasks, name, etc.) changes.
+ */
+const KanbanColumn = memo(function KanbanColumn({ column, children, onAddTask, isCreatingTask }) {
   return (
     <Droppable droppableId={String(column.id)}>
       {(provided, snapshot) => (
@@ -10,8 +14,8 @@ export default function KanbanColumn({ column, children, onAddTask, isCreatingTa
           ref={provided.innerRef}
           {...provided.droppableProps}
           className={`flex w-[310px] shrink-0 flex-col rounded-3xl border-editorial bg-white p-5 shadow-editorial max-h-[78vh] transition-all duration-300 ${
-            snapshot.isDraggingOver 
-              ? 'bg-brand-lavender/10 border-brand-purple shadow-editorial-hover' 
+            snapshot.isDraggingOver
+              ? 'bg-brand-lavender/10 border-brand-purple shadow-editorial-hover'
               : 'border-brand-black hover:shadow-editorial-hover'
           }`}
         >
@@ -27,10 +31,10 @@ export default function KanbanColumn({ column, children, onAddTask, isCreatingTa
                 </span>
               </div>
             </div>
-            
-            <button 
-              type="button" 
-              onClick={onAddTask} 
+
+            <button
+              type="button"
+              onClick={onAddTask}
               className="rounded-full border border-brand-black/15 bg-brand-offwhite p-1.5 text-brand-black hover:border-brand-black hover:bg-brand-yellow transition cursor-pointer shadow-sm"
               title="Add task to column"
             >
@@ -55,4 +59,6 @@ export default function KanbanColumn({ column, children, onAddTask, isCreatingTa
       )}
     </Droppable>
   );
-}
+});
+
+export default KanbanColumn;

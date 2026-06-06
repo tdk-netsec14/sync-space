@@ -8,7 +8,12 @@ const taskSchema = new mongoose.Schema(
     title: { type: String, required: true, trim: true },
     description: { type: String, default: '' },
     assigneeId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
-    priority: { type: String, enum: ['low', 'medium', 'high', 'urgent'], default: 'medium' },
+    // 'critical' added to match Zod enum; 'urgent' kept for backward-compat migration
+    priority: {
+      type: String,
+      enum: ['low', 'medium', 'high', 'critical', 'urgent'],
+      default: 'medium'
+    },
     dueDate: { type: Date, default: null },
     order: { type: Number, required: true },
     labels: { type: [String], default: [] },
@@ -19,7 +24,18 @@ const taskSchema = new mongoose.Schema(
   { versionKey: false }
 );
 
-taskSchema.index({ boardId: 1, columnId: 1 });
+// ── Indexes ──────────────────────────────────────────────────────────────────
+
+// Primary lookup + board view ordering
+taskSchema.index({ boardId: 1, columnId: 1, order: 1 });
+
+// Workspace-level queries (stats, deletion cascade)
 taskSchema.index({ workspaceId: 1 });
+
+// Assignee queries (notifications, suggestions)
+taskSchema.index({ assigneeId: 1 });
+
+// Due-date overdue queries
+taskSchema.index({ dueDate: 1 }, { sparse: true });
 
 module.exports = mongoose.model('Task', taskSchema);

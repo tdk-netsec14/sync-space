@@ -29,7 +29,7 @@ function iconForType(type) {
 }
 
 export default function NotificationBell() {
-  const socket = useSocket();
+  const { socket } = useSocket();
   const navigate = useNavigate();
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
@@ -52,7 +52,10 @@ export default function NotificationBell() {
 
     async function load() {
       try {
-        const [listResponse, countResponse] = await Promise.all([fetchNotifications(), fetchUnreadNotificationCount()]);
+        const [listResponse, countResponse] = await Promise.all([
+          fetchNotifications(),
+          fetchUnreadNotificationCount()
+        ]);
         if (!active) return;
         setNotifications(listResponse.data.notifications || []);
         setUnreadCount(countResponse.data.count || 0);
@@ -89,11 +92,20 @@ export default function NotificationBell() {
       const nextNotification = event?.notification || event;
       if (!nextNotification) return;
 
-      if (nextNotification.userId && user?.id && String(nextNotification.userId) !== String(user.id)) {
+      if (
+        nextNotification.userId &&
+        user?.id &&
+        String(nextNotification.userId) !== String(user.id)
+      ) {
         return;
       }
 
-      setNotifications((current) => [nextNotification, ...current.filter((item) => String(item.id) !== String(nextNotification.id))].slice(0, 15));
+      setNotifications((current) =>
+        [
+          nextNotification,
+          ...current.filter((item) => String(item.id) !== String(nextNotification.id))
+        ].slice(0, 15)
+      );
       setUnreadCount((current) => current + 1);
     };
 
@@ -112,7 +124,11 @@ export default function NotificationBell() {
         setUnreadCount((current) => Math.max(0, current - 1));
       }
     } finally {
-      setNotifications((current) => current.map((item) => (String(item.id) === String(notification.id) ? { ...item, read: true } : item)));
+      setNotifications((current) =>
+        current.map((item) =>
+          String(item.id) === String(notification.id) ? { ...item, read: true } : item
+        )
+      );
       setOpen(false);
       if (notification.link) {
         navigate(notification.link);
@@ -151,12 +167,14 @@ export default function NotificationBell() {
             </span>
           </div>
         </span>
-        <ChevronDown className={`h-4 w-4 text-white/40 transition-transform duration-250 ${open ? 'rotate-180 text-white' : ''}`} />
+        <ChevronDown
+          className={`h-4 w-4 text-white/40 transition-transform duration-250 ${open ? 'rotate-180 text-white' : ''}`}
+        />
       </motion.button>
 
       <AnimatePresence>
         {open && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 5 }}
@@ -164,11 +182,13 @@ export default function NotificationBell() {
             className="absolute left-0 top-[calc(100%+0.5rem)] z-50 w-[320px] overflow-hidden rounded-2xl border border-white/15 bg-[#161616] p-1.5 shadow-2xl"
           >
             <div className="flex items-center justify-between border-b border-white/10 px-3 py-2.5">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-white/40">Notifications</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-white/40">
+                Notifications
+              </p>
               {unreadIndicator && (
-                <button 
-                  type="button" 
-                  onClick={handleMarkAllRead} 
+                <button
+                  type="button"
+                  onClick={handleMarkAllRead}
                   className="flex items-center gap-1 text-[10px] font-bold text-brand-yellow hover:underline transition duration-150 cursor-pointer"
                 >
                   <CheckCheck className="h-3.5 w-3.5" />
@@ -186,22 +206,30 @@ export default function NotificationBell() {
                     type="button"
                     onClick={() => handleOpen(notification)}
                     className={`flex w-full items-start gap-3 rounded-xl px-2.5 py-2.5 text-left transition duration-150 cursor-pointer border ${
-                      notification.read 
-                        ? 'text-white/50 border-transparent hover:bg-white/5 hover:text-white' 
+                      notification.read
+                        ? 'text-white/50 border-transparent hover:bg-white/5 hover:text-white'
                         : 'bg-brand-purple/10 text-white border-brand-purple/20 hover:bg-brand-purple/15'
                     }`}
                   >
-                    <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
-                      notification.read ? 'bg-white/5 text-white/40' : 'bg-brand-purple text-white shadow-sm'
-                    }`}>
+                    <span
+                      className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
+                        notification.read
+                          ? 'bg-white/5 text-white/40'
+                          : 'bg-brand-purple text-white shadow-sm'
+                      }`}
+                    >
                       <Icon className="h-3.5 w-3.5" />
                     </span>
-                    
+
                     <span className="min-w-0 flex-1">
-                      <span className="block text-xs font-semibold leading-normal font-sans-editorial">{notification.message}</span>
-                      <span className="block text-[9px] font-bold text-white/30 mt-1">{formatTimeAgo(notification.createdAt)}</span>
+                      <span className="block text-xs font-semibold leading-normal font-sans-editorial">
+                        {notification.message}
+                      </span>
+                      <span className="block text-[9px] font-bold text-white/30 mt-1">
+                        {formatTimeAgo(notification.createdAt)}
+                      </span>
                     </span>
-                    
+
                     {!notification.read && (
                       <span className="mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-purple pulse-glow-yellow" />
                     )}

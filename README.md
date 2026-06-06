@@ -1,112 +1,54 @@
-# SyncSpace
+# SyncSpace 🚀
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![React](https://img.shields.io/badge/React-18-blue.svg)
-![Node.js](https://img.shields.io/badge/Node.js-Express%205-green.svg)
-![MongoDB](https://img.shields.io/badge/MongoDB-Database-green.svg)
-![Socket.IO](https://img.shields.io/badge/Socket.IO-Real%20Time-black.svg)
-![Vite](https://img.shields.io/badge/Vite-Bundler-purple.svg)
-![TailwindCSS](https://img.shields.io/badge/Tailwind-CSS-blue.svg)
+![Build Status](https://img.shields.io/github/actions/workflow/status/yourusername/syncspace/ci.yml?branch=main)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Node Version](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)
 
-SyncSpace is a production-grade, AI-powered multi-tenant collaboration platform built from the ground up for high-performance engineering and product teams. It combines robust real-time Kanban board management with cutting-edge local and cloud AI intelligence.
+SyncSpace is an AI-powered project management and team collaboration workspace featuring real-time socket updates, automated sprint reporting, and intelligent task generation.
 
-## 🚀 Features
+## 📋 Prerequisites
+- **Node.js** v20+
+- **MongoDB** v6+ (or use the provided Docker Compose file)
+- **Git**
 
-- **Multi-tenant Architecture:** Secure workspace isolation with role-based access control (Owner, Admin, Member).
-- **Real-time Collaboration:** Live updates for tasks, boards, and comments powered by Socket.io.
-- **Premium Design System:** A highly responsive, Tailwind CSS-powered UI engineered for speed, aesthetics, and accessibility across all devices.
-- **AI Workspace Intelligence:** 
-  - Automated Sprint Reports
-  - Personalized 24-hour Standups
-  - Smart Task Assignee Suggestions
-  - AI-generated Task Descriptions
-- **Drag & Drop Workflows:** Seamless Kanban column and task management with `@hello-pangea/dnd`.
+## ⚙️ Environment Variables
+Create `.env` files in both the `server/` and `client/` directories based on the `.example` templates.
 
-## 🛠 Tech Stack & Architecture
+### Server (`server/.env`)
+| Variable | Required | Description |
+|---|---|---|
+| `NODE_ENV` | Yes | `development`, `test`, or `production` |
+| `PORT` | Yes | Port for the Express API (default: 5000) |
+| `MONGO_URI` | Yes | Connection string to MongoDB |
+| `CLIENT_URL` | Yes | The URL of the frontend for CORS and Cookies |
+| `JWT_ACCESS_SECRET` | Yes | Secret for signing short-lived access tokens |
+| `JWT_REFRESH_SECRET`| Yes | Secret for signing long-lived refresh tokens |
+| `CSRF_SECRET` | Yes | Secret for CSRF token hashing |
+| `AI_ENABLED` | No | Set to `false` to disable AI routes entirely |
+| `GEMINI_API_KEY` | Yes* | Primary AI API Key (Google) |
+| `GROQ_API_KEY` | Yes* | Fallback AI API Key (Groq) |
 
-- **Frontend:** React 18, Vite, Tailwind CSS, React Router, Axios
-- **Backend:** Node.js, Express.js 5, MongoDB (Mongoose), Socket.io
-- **AI Integration:** Google GenAI (Gemini 2.0 Flash) with Groq (Llama 3.3-70B) fallback strategies.
-- **Security:** JWT authentication, bcrypt password hashing, `express-rate-limit`, `helmet`.
+### Client (`client/.env`)
+| Variable | Required | Description |
+|---|---|---|
+| `VITE_API_URL` | Yes | Full URL to the backend API |
+| `VITE_API_PREFIX` | Yes | Base API prefix (e.g., `/api/v1`) |
 
-### 🧠 AI Architecture
+## 🚀 Deployment Steps
 
-Our AI features utilize a dual-provider strategy to ensure high availability and responsiveness. 
-- **Primary:** Google Gemini 2.0 Flash is used for complex contextual analysis like comprehensive sprint reports and detailed task generation.
-- **Fallback/Fast Path:** Groq (Llama 3.3-70B) provides ultra-low latency responses for real-time task suggestions and quick daily standup summaries.
+### Local Development (Docker Orchestrated)
+The easiest way to run the backend stack locally is via Docker:
+```bash
+# Start the Node.js API and MongoDB container
+docker-compose up -d --build
 
-## 📁 Folder Structure
-
-```
-SyncSpace/
-├── client/                 # React Frontend
-│   ├── public/
-│   ├── src/
-│   │   ├── components/     # Reusable UI components
-│   │   ├── pages/          # Route components
-│   │   ├── context/        # React Context (Auth, Socket)
-│   │   ├── services/       # API integration
-│   │   └── styles/         # Tailwind & global CSS
-├── server/                 # Node/Express Backend
-│   ├── models/             # Mongoose Schemas
-│   ├── routes/             # API Endpoints
-│   ├── services/           # AI and Business Logic
-│   ├── middleware/         # Auth & Validation
-│   └── index.js            # Entry Point
-└── ...
+# In a separate terminal, start the frontend
+cd client && npm run dev
 ```
 
-## 🔐 Security
+### Production Hosting
+- **Frontend (Vercel):** Connect your repository to Vercel and set the Root Directory to `client`. The provided `vercel.json` automatically handles SPA routing fallbacks.
+- **Backend (Render):** Connect your repository to Render. The provided `render.yaml` Blueprint will automatically detect the backend, configure the build commands, and prompt you for the required environment secrets.
 
-- **Authentication:** Stateless JWTs with secure HTTP-only cookies (in production).
-- **Authorization:** Role-Based Access Control (RBAC) ensuring data boundary integrity between tenants.
-- **Data Protection:** Passwords securely hashed with bcrypt. All sensitive configuration managed via environment variables.
-
-## 🚢 Deployment
-
-### Frontend (Vercel)
-The React client is configured for Vercel deployment as a Single Page Application (SPA). A `client/vercel.json` ensures that React Router paths are correctly rewritten.
-
-### Backend (Render)
-The Node/Express backend is ready for Render. A `render.yaml` configuration is included to spin up the `syncspace-api` web service automatically.
-
-## ⚙️ Setup Instructions
-
-1. **Clone and Install**
-   ```bash
-   git clone https://github.com/tdk-netsec14/sync-space.git
-   cd sync-space
-   npm install
-   cd client && npm install
-   ```
-2. **Environment Variables**
-   Create a `.env` in the `server` directory (see `server/.env.example`):
-   ```env
-   PORT=5000
-   MONGO_URI=your_mongodb_uri
-   JWT_SECRET=your_jwt_secret
-   CLIENT_URL=http://localhost:5173
-   GEMINI_API_KEY=your_gemini_key
-   GROQ_API_KEY=your_groq_key
-   ```
-3. **Run Development Mode**
-   Start the backend:
-   ```bash
-   cd server
-   npm run dev
-   ```
-   Start the frontend (in a new terminal):
-   ```bash
-   cd client && npm run dev
-   ```
-
-## 🎨 Design Philosophy
-SyncSpace employs the custom "Obsidian Command" design palette—featuring deep slate backgrounds, crisp indigo accents, and clean, geometric sans-serif typography. Every interaction is optimized for reduced cognitive load and maximum developer productivity.
-
-## 🤝 Contribution
-
-We welcome contributions! Please follow our established coding standards and submit pull requests to the `main` branch. For major changes, please open an issue first to discuss what you would like to change.
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## 🤝 Contributing
+Please read [CONTRIBUTING.md](./CONTRIBUTING.md) for details on our code of conduct, branch naming, and the process for submitting Pull Requests.

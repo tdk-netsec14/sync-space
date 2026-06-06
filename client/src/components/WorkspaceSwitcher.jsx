@@ -1,5 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Plus, Terminal, BarChart2, Briefcase, Timer, Users, Palette } from 'lucide-react';
+import {
+  ChevronDown,
+  Plus,
+  Terminal,
+  BarChart2,
+  Briefcase,
+  Timer,
+  Users,
+  Palette
+} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -43,23 +52,31 @@ export default function WorkspaceSwitcher() {
         onClick={() => setOpen((value) => !value)}
         className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-left text-xs font-bold text-white/80 hover:text-white hover:bg-white/10 transition-all cursor-pointer shadow-sm animate-fade-in"
       >
-        <span 
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-brand-black shadow-sm animate-fade-in" 
+        <span
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-brand-black shadow-sm animate-fade-in"
           style={{ backgroundColor: currentWorkspace?.color || '#8B5CF6' }}
         >
           {emojiMap[currentWorkspace?.logo] ? (
-            React.createElement(emojiMap[currentWorkspace?.logo], { className: "h-3.5 w-3.5 text-brand-black" })
+            React.createElement(emojiMap[currentWorkspace?.logo], {
+              className: 'h-3.5 w-3.5 text-brand-black'
+            })
           ) : (
-            <span className="text-[10px] font-black">{currentWorkspace?.logo?.[0]?.toUpperCase() || 'W'}</span>
+            <span className="text-[10px] font-black">
+              {currentWorkspace?.logo?.[0]?.toUpperCase() || 'W'}
+            </span>
           )}
         </span>
-        <span className="truncate flex-1 text-white">{currentWorkspace?.name || 'Select workspace'}</span>
-        <ChevronDown className={`h-4 w-4 text-white/40 transition-transform duration-250 ${open ? 'rotate-180 text-white' : ''}`} />
+        <span className="truncate flex-1 text-white">
+          {currentWorkspace?.name || 'Select workspace'}
+        </span>
+        <ChevronDown
+          className={`h-4 w-4 text-white/40 transition-transform duration-250 ${open ? 'rotate-180 text-white' : ''}`}
+        />
       </motion.button>
 
       <AnimatePresence>
         {open && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 5 }}
@@ -78,21 +95,25 @@ export default function WorkspaceSwitcher() {
                       : 'text-white/60 hover:bg-white/5 hover:text-white'
                   }`}
                 >
-                  <span 
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-brand-black shadow-sm" 
+                  <span
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-brand-black shadow-sm"
                     style={{ backgroundColor: workspace.color || '#8B5CF6' }}
                   >
                     {emojiMap[workspace.logo] ? (
-                      React.createElement(emojiMap[workspace.logo], { className: "h-4 w-4 text-brand-black" })
+                      React.createElement(emojiMap[workspace.logo], {
+                        className: 'h-4 w-4 text-brand-black'
+                      })
                     ) : (
-                      <span className="text-[10px] font-black">{workspace.logo?.[0]?.toUpperCase() || 'W'}</span>
+                      <span className="text-[10px] font-black">
+                        {workspace.logo?.[0]?.toUpperCase() || 'W'}
+                      </span>
                     )}
                   </span>
                   <span className="truncate">{workspace.name}</span>
                 </button>
               ))}
             </div>
-            
+
             <div className="mt-1.5 pt-1.5 border-t border-white/10">
               <button
                 type="button"

@@ -49,6 +49,14 @@ function extractJson(text) {
   return JSON.parse(candidate.slice(start, end + 1));
 }
 
+/**
+ * Generates a comprehensive AI sprint report detailing completions, bottlenecks, and velocity.
+ *
+ * @param {Object} boardData - The board data and aggregated metrics for the sprint.
+ * @param {string} weekStart - The start date of the sprint (e.g., 'YYYY-MM-DD').
+ * @param {string} weekEnd - The end date of the sprint.
+ * @returns {Promise<string>} Markdown formatted sprint retrospective report.
+ */
 async function generateSprintReport(boardData, weekStart, weekEnd) {
   const prompt = `You are a project manager writing a sprint report.
 Generate a professional sprint summary for a software team.
@@ -82,6 +90,13 @@ Be specific and technical. Use task titles directly.`;
   return callAI(prompt, 1400);
 }
 
+/**
+ * Generates an AI daily standup summary for a specific member based on recent activity.
+ *
+ * @param {Object} memberActivity - Aggregated tasks and comments belonging to the member.
+ * @param {string} memberName - The name of the member.
+ * @returns {Promise<string>} Markdown formatted daily standup briefing.
+ */
 async function generateStandup(memberActivity, memberName) {
   const prompt = `Generate a daily standup update for ${memberName}.
 
@@ -102,6 +117,13 @@ Use task titles directly. Be specific, not generic.`;
   return callAI(prompt, 800);
 }
 
+/**
+ * Suggests the best team member to assign to a task based on current workloads and context.
+ *
+ * @param {Object} task - The task details (title, description, priority).
+ * @param {Array<Object>} members - A list of workspace members and their active workloads.
+ * @returns {Promise<Object>} An object containing the suggestedMemberId, name, and reason.
+ */
 async function suggestAssignee(task, members) {
   const prompt = `Suggest the best team member to assign this task.
 
@@ -131,6 +153,13 @@ No other text.`;
   };
 }
 
+/**
+ * Generates an AI-driven task description based on an input prompt and board context.
+ *
+ * @param {string} taskTitle - The user-provided title for the task.
+ * @param {Object} boardContext - Context regarding existing tasks and the board's purpose.
+ * @returns {Promise<string>} The generated task description text.
+ */
 async function generateTaskDescription(taskTitle, boardContext) {
   const prompt = `Write a brief task description for a software project.
 

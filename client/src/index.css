@@ -3,11 +3,18 @@
 @tailwind utilities;
 
 /* Global Document Groundwork */
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   margin: 0;
-  font-family: 'General Sans', 'Inter', system-ui, -apple-system, sans-serif;
-  background-color: #F8F8F5;
+  font-family:
+    'General Sans',
+    'Inter',
+    system-ui,
+    -apple-system,
+    sans-serif;
+  background-color: #f8f8f5;
   color: #111111;
   scroll-behavior: smooth;
   -webkit-font-smoothing: antialiased;
@@ -25,12 +32,12 @@ html, body, #root {
 }
 
 .scrollbar-elegant::-webkit-scrollbar-thumb {
-  background: #E5E5E0;
+  background: #e5e5e0;
   border-radius: 9999px;
 }
 
 .scrollbar-elegant::-webkit-scrollbar-thumb:hover {
-  background: #C4C4BC;
+  background: #c4c4bc;
 }
 
 /* Wix Editorial Dot Grid Background */
@@ -100,7 +107,7 @@ html, body, #root {
 }
 
 .animate-shimmer {
-  background: linear-gradient(90deg, #F6EFD8 25%, #F4C318 50%, #F6EFD8 75%);
+  background: linear-gradient(90deg, #f6efd8 25%, #f4c318 50%, #f6efd8 75%);
   background-size: 200% 100%;
   animation: shimmer 2s infinite linear;
 }
@@ -112,7 +119,8 @@ html, body, #root {
 }
 
 @keyframes pulseYellow {
-  0%, 100% {
+  0%,
+  100% {
     transform: scale(1);
     box-shadow: 0 0 0 0 rgba(244, 195, 24, 0.4);
   }

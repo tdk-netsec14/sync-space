@@ -18,6 +18,15 @@ const NotificationSchema = new Schema(
   { timestamps: { createdAt: 'createdAt' } }
 );
 
+// ── Indexes ──────────────────────────────────────────────────────────────────
+
+// Primary: inbox view — user's unread notifications newest-first
 NotificationSchema.index({ userId: 1, read: 1, createdAt: -1 });
+
+// Unread count query: userId + read only
+NotificationSchema.index({ userId: 1, read: 1 });
+
+// Workspace-level cascade deletes
+NotificationSchema.index({ workspaceId: 1 });
 
 module.exports = mongoose.model('Notification', NotificationSchema);

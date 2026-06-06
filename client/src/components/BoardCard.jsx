@@ -9,10 +9,12 @@ export default function BoardCard({ board, workspaceId }) {
 
   return (
     <div className="group relative overflow-hidden rounded-3xl border-editorial bg-white shadow-editorial-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-editorial flex flex-col justify-between min-h-[200px]">
-      
       {/* Editorial top accent bar */}
-      <span className="absolute left-0 right-0 top-0 h-1.5" style={{ backgroundColor: accentColor }} />
-      
+      <span
+        className="absolute left-0 right-0 top-0 h-1.5"
+        style={{ backgroundColor: accentColor }}
+      />
+
       <div className="p-6 flex-1">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -23,14 +25,14 @@ export default function BoardCard({ board, workspaceId }) {
               {board.description || 'No project description configured.'}
             </p>
           </div>
-          
+
           <span className="shrink-0 inline-flex items-center gap-1.5 rounded-full bg-brand-beige border border-brand-black/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-brand-black/65">
             <Kanban className="h-3 w-3 text-brand-purple" />
             <span>{board.taskCount || 0} tasks</span>
           </span>
         </div>
       </div>
-      
+
       <div className="px-6 pb-6 pt-2">
         <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
           <button

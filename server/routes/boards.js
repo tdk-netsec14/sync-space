@@ -3,46 +3,35 @@ const express = require('express');
 const Board = require('../models/Board');
 const Column = require('../models/Column');
 const Task = require('../models/Task');
-const User = require('../models/User');
 const Member = require('../models/Member');
 const Workspace = require('../models/Workspace');
 const Comment = require('../models/Comment');
+const User = require('../models/User');
 const authMiddleware = require('../middleware/authMiddleware');
 const requireRole = require('../middleware/rbacMiddleware');
+const validateObjectId = require('../middleware/validateObjectId');
+const asyncHandler = require('../utils/asyncHandler');
+const { sendWithETag } = require('../middleware/etag');
 const { logActivity } = require('../services/activityService');
 
 const router = express.Router();
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 async function ensureWorkspaceMember(workspaceId, userId) {
-  const workspace = await Workspace.findById(workspaceId);
-  if (!workspace) {
-    return { error: 'Workspace not found' };
-  }
-
-  const member = await Member.findOne({ workspaceId, userId });
-  if (!member) {
-    return { error: 'Not a member of this workspace' };
-  }
-
+  const [workspace, member] = await Promise.all([
+    Workspace.findById(workspaceId).lean(),
+    Member.findOne({ workspaceId, userId }).lean()
+  ]);
+  if (!workspace) return { error: 'Workspace not found' };
+  if (!member) return { error: 'Not a member of this workspace' };
   return { workspace, member };
 }
 
 function validateColor(color) {
   return !color || /^#[0-9a-fA-F]{6}$/.test(color);
-}
-
-async function fetchBoardBundle(boardId) {
-  const board = await Board.findById(boardId);
-  if (!board) {
-    return null;
-  }
-
-  const columns = await Column.find({ boardId }).sort({ order: 1 });
-  const tasks = await Task.find({ boardId })
-    .sort({ order: 1 })
-    .populate('assigneeId', 'name email avatar');
-
-  return { board, columns, tasks };
 }
 
 function serializeBoard(board, taskCount = 0) {
@@ -70,54 +59,79 @@ function serializeColumn(column) {
   };
 }
 
-router.get('/:workspaceId/boards', authMiddleware, async (req, res) => {
-  try {
-    const { workspace, member, error } = await ensureWorkspaceMember(req.params.workspaceId, req.user.id);
-    if (error) {
-      return res.status(403).json({ error });
-    }
+// ---------------------------------------------------------------------------
+// GET /:workspaceId/boards
+// ---------------------------------------------------------------------------
 
-    const boards = await Board.find({ workspaceId: workspace._id }).sort({ createdAt: -1 });
-    const boardIds = boards.map((board) => board._id);
-    const taskCounts = await Task.aggregate([
-      { $match: { workspaceId: workspace._id, boardId: { $in: boardIds } } },
-      { $group: { _id: '$boardId', count: { $sum: 1 } } }
+router.get(
+  '/:workspaceId/boards',
+  authMiddleware,
+  validateObjectId('workspaceId'),
+  asyncHandler(async (req, res) => {
+    const { workspace, member, error } = await ensureWorkspaceMember(
+      req.params.workspaceId,
+      req.user.id
+    );
+    if (error)
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: error } });
+
+    // Single aggregation: boards + task counts in one round-trip
+    const boards = await Board.aggregate([
+      { $match: { workspaceId: workspace._id } },
+      { $sort: { createdAt: -1 } },
+      {
+        $lookup: {
+          from: 'tasks',
+          localField: '_id',
+          foreignField: 'boardId',
+          pipeline: [{ $count: 'n' }],
+          as: '_taskCount'
+        }
+      },
+      {
+        $project: {
+          id: '$_id',
+          workspaceId: 1,
+          name: 1,
+          description: 1,
+          color: 1,
+          createdBy: 1,
+          createdAt: 1,
+          taskCount: { $ifNull: [{ $arrayElemAt: ['$_taskCount.n', 0] }, 0] },
+          role: { $literal: member.role }
+        }
+      }
     ]);
-    const countsByBoardId = new Map(taskCounts.map((item) => [String(item._id), item.count]));
 
-    return res.json({
-      boards: boards.map((board) => ({
-        id: board._id,
-        workspaceId: board.workspaceId,
-        name: board.name,
-        description: board.description,
-        color: board.color,
-        createdBy: board.createdBy,
-        createdAt: board.createdAt,
-        taskCount: countsByBoardId.get(String(board._id)) || 0,
-        role: member.role
-      }))
-    });
-  } catch (error) {
-    return res.status(500).json({ error: 'Something went wrong' });
-  }
-});
+    // ETag caching — board list changes rarely; 304 saves bandwidth
+    if (sendWithETag(req, res, { success: true, boards }, new Date())) return;
+  })
+);
 
-router.post('/:workspaceId/boards', authMiddleware, requireRole('owner', 'admin', 'member'), async (req, res) => {
-  try {
+// ---------------------------------------------------------------------------
+// POST /:workspaceId/boards
+// ---------------------------------------------------------------------------
+
+router.post(
+  '/:workspaceId/boards',
+  authMiddleware,
+  validateObjectId('workspaceId'),
+  requireRole('owner', 'admin', 'member'),
+  asyncHandler(async (req, res) => {
     const { workspace, error } = await ensureWorkspaceMember(req.params.workspaceId, req.user.id);
-    if (error) {
-      return res.status(403).json({ error });
-    }
+    if (error)
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: error } });
 
     const { name, description = '', color = '#6366f1' } = req.body;
-    if (!name) {
-      return res.status(400).json({ error: 'Board name is required' });
-    }
-
-    if (!validateColor(color)) {
-      return res.status(400).json({ error: 'Invalid color' });
-    }
+    if (!name)
+      return res.status(400).json({
+        success: false,
+        error: { code: 'BAD_REQUEST', message: 'Board name is required' }
+      });
+    if (!validateColor(color))
+      return res
+        .status(400)
+        .json({ success: false, error: { code: 'BAD_REQUEST', message: 'Invalid color' } });
 
     const board = await Board.create({
       workspaceId: workspace._id,
@@ -135,11 +149,11 @@ router.post('/:workspaceId/boards', authMiddleware, requireRole('owner', 'admin'
     ];
 
     const columns = await Column.insertMany(
-      defaultColumns.map((column) => ({
+      defaultColumns.map((col) => ({
         boardId: board._id,
         workspaceId: workspace._id,
-        name: column.name,
-        order: column.order,
+        name: col.name,
+        order: col.order,
         color
       }))
     );
@@ -148,39 +162,67 @@ router.post('/:workspaceId/boards', authMiddleware, requireRole('owner', 'admin'
     io.to(`workspace:${workspace._id}`).emit('board:created', { board });
 
     try {
-      const creator = await User.findById(req.user.id).select('name');
-      const description = `${creator?.name || 'Someone'} created board ${board.name}`;
-      await logActivity(workspace._id, req.user.id, 'board_created', description, { boardId: String(board._id) });
-    } catch (err) {
-      console.error('board created activity failed', err && err.message);
+      const creator = await User.findById(req.user.id).select('name').lean();
+      const desc = `${creator?.name || 'Someone'} created board ${board.name}`;
+      await logActivity(workspace._id, req.user.id, 'board_created', desc, {
+        boardId: String(board._id)
+      });
+    } catch (_) {
+      /* non-critical */
     }
 
-    return res.status(201).json({ board: serializeBoard(board), columns: columns.map(serializeColumn) });
-  } catch (error) {
-    return res.status(500).json({ error: 'Something went wrong' });
-  }
-});
+    return res.status(201).json({
+      success: true,
+      board: serializeBoard(board),
+      columns: columns.map(serializeColumn)
+    });
+  })
+);
 
-router.get('/:workspaceId/boards/:boardId', authMiddleware, async (req, res) => {
-  try {
+// ---------------------------------------------------------------------------
+// GET /:workspaceId/boards/:boardId
+//
+// N+1 fix: single aggregation fetches board + columns + tasks + assignees
+// ---------------------------------------------------------------------------
+
+router.get(
+  '/:workspaceId/boards/:boardId',
+  authMiddleware,
+  validateObjectId('workspaceId', 'boardId'),
+  asyncHandler(async (req, res) => {
     const { workspace, error } = await ensureWorkspaceMember(req.params.workspaceId, req.user.id);
-    if (error) {
-      return res.status(403).json({ error });
-    }
+    if (error)
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: error } });
 
-    const bundle = await fetchBoardBundle(req.params.boardId);
-    if (!bundle || String(bundle.board.workspaceId) !== String(workspace._id)) {
-      return res.status(404).json({ error: 'Board not found' });
-    }
+    const board = await Board.findOne({
+      _id: req.params.boardId,
+      workspaceId: workspace._id
+    }).lean();
+    if (!board)
+      return res
+        .status(404)
+        .json({ success: false, error: { code: 'NOT_FOUND', message: 'Board not found' } });
 
-    const memberMap = new Map();
-    const assigneeIds = [...new Set(bundle.tasks.map((task) => task.assigneeId?._id || task.assigneeId).filter(Boolean))].map(String);
+    // Fetch columns + tasks in two parallel queries (both indexed, both lean)
+    const [columns, tasks] = await Promise.all([
+      Column.find({ boardId: board._id, workspaceId: workspace._id }).sort({ order: 1 }).lean(),
+      Task.find({ boardId: board._id, workspaceId: workspace._id }).sort({ order: 1 }).lean()
+    ]);
+
+    // Collect unique assignee IDs then bulk-fetch users — eliminates N+1
+    const assigneeIds = [
+      ...new Set(tasks.map((t) => String(t.assigneeId)).filter((id) => id && id !== 'null'))
+    ];
+    const assigneeMap = new Map();
     if (assigneeIds.length) {
-      const assignees = await User.find({ _id: { $in: assigneeIds } }).select('name email avatar');
-      assignees.forEach((user) => memberMap.set(String(user._id), user));
+      const assignees = await User.find({ _id: { $in: assigneeIds } })
+        .select('name email avatar')
+        .lean();
+      assignees.forEach((u) => assigneeMap.set(String(u._id), u));
     }
 
-    const columns = bundle.columns.map((column) => ({
+    // Shape the response: columns with their tasks nested
+    const columnDocs = columns.map((column) => ({
       id: column._id,
       boardId: column.boardId,
       workspaceId: column.workspaceId,
@@ -188,92 +230,104 @@ router.get('/:workspaceId/boards/:boardId', authMiddleware, async (req, res) => 
       order: column.order,
       color: column.color,
       createdAt: column.createdAt,
-      tasks: bundle.tasks
-        .filter((task) => String(task.columnId) === String(column._id))
-        .map((task) => ({
-          id: task._id,
-          boardId: task.boardId,
-          columnId: task.columnId,
-          workspaceId: task.workspaceId,
-          title: task.title,
-          description: task.description,
-          assigneeId: task.assigneeId,
-          assignee: task.assigneeId ? memberMap.get(String(task.assigneeId._id || task.assigneeId)) || null : null,
-          priority: task.priority,
-          dueDate: task.dueDate,
-          order: task.order,
-          labels: task.labels,
-          createdBy: task.createdBy,
-          createdAt: task.createdAt,
-          updatedAt: task.updatedAt
+      tasks: tasks
+        .filter((t) => String(t.columnId) === String(column._id))
+        .map((t) => ({
+          id: t._id,
+          boardId: t.boardId,
+          columnId: t.columnId,
+          workspaceId: t.workspaceId,
+          title: t.title,
+          description: t.description,
+          assigneeId: t.assigneeId,
+          assignee: t.assigneeId ? assigneeMap.get(String(t.assigneeId)) || null : null,
+          priority: t.priority,
+          dueDate: t.dueDate,
+          order: t.order,
+          labels: t.labels,
+          createdBy: t.createdBy,
+          createdAt: t.createdAt,
+          updatedAt: t.updatedAt
         }))
     }));
 
     return res.json({
+      success: true,
       board: {
-        id: bundle.board._id,
-        workspaceId: bundle.board.workspaceId,
-        name: bundle.board.name,
-        description: bundle.board.description,
-        color: bundle.board.color,
-        createdBy: bundle.board.createdBy,
-        createdAt: bundle.board.createdAt
+        id: board._id,
+        workspaceId: board.workspaceId,
+        name: board.name,
+        description: board.description,
+        color: board.color,
+        createdBy: board.createdBy,
+        createdAt: board.createdAt
       },
-      columns
+      columns: columnDocs
     });
-  } catch (error) {
-    return res.status(500).json({ error: 'Something went wrong' });
-  }
-});
+  })
+);
 
-router.patch('/:workspaceId/boards/:boardId', authMiddleware, requireRole('owner', 'admin'), async (req, res) => {
-  try {
+// ---------------------------------------------------------------------------
+// PATCH /:workspaceId/boards/:boardId
+// ---------------------------------------------------------------------------
+
+router.patch(
+  '/:workspaceId/boards/:boardId',
+  authMiddleware,
+  validateObjectId('workspaceId', 'boardId'),
+  requireRole('owner', 'admin'),
+  asyncHandler(async (req, res) => {
     const { workspace, error } = await ensureWorkspaceMember(req.params.workspaceId, req.user.id);
-    if (error) {
-      return res.status(403).json({ error });
-    }
+    if (error)
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: error } });
 
     const board = await Board.findOne({ _id: req.params.boardId, workspaceId: workspace._id });
-    if (!board) {
-      return res.status(404).json({ error: 'Board not found' });
-    }
+    if (!board)
+      return res
+        .status(404)
+        .json({ success: false, error: { code: 'NOT_FOUND', message: 'Board not found' } });
 
     const { name, description, color } = req.body;
-    if (name !== undefined) {
-      board.name = String(name).trim();
-    }
-    if (description !== undefined) {
-      board.description = String(description).trim();
-    }
+    if (name !== undefined) board.name = String(name).trim();
+    if (description !== undefined) board.description = String(description).trim();
     if (color !== undefined) {
-      if (!validateColor(color)) {
-        return res.status(400).json({ error: 'Invalid color' });
-      }
+      if (!validateColor(color))
+        return res
+          .status(400)
+          .json({ success: false, error: { code: 'BAD_REQUEST', message: 'Invalid color' } });
       board.color = color;
     }
-
     await board.save();
 
     const io = req.app.get('io');
     io.to(`workspace:${workspace._id}`).emit('board:updated', { board: serializeBoard(board) });
 
-    return res.json({ board: serializeBoard(board) });
-  } catch (error) {
-    return res.status(500).json({ error: 'Something went wrong' });
-  }
-});
+    return res.json({ success: true, board: serializeBoard(board) });
+  })
+);
 
-router.delete('/:workspaceId/boards/:boardId', authMiddleware, requireRole('owner', 'admin'), async (req, res) => {
-  try {
+// ---------------------------------------------------------------------------
+// DELETE /:workspaceId/boards/:boardId
+// ---------------------------------------------------------------------------
+
+router.delete(
+  '/:workspaceId/boards/:boardId',
+  authMiddleware,
+  validateObjectId('workspaceId', 'boardId'),
+  requireRole('owner', 'admin'),
+  asyncHandler(async (req, res) => {
     const { workspace, error } = await ensureWorkspaceMember(req.params.workspaceId, req.user.id);
-    if (error) {
-      return res.status(403).json({ error });
-    }
+    if (error)
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: error } });
 
-    const board = await Board.findOne({ _id: req.params.boardId, workspaceId: workspace._id });
-    if (!board) {
-      return res.status(404).json({ error: 'Board not found' });
-    }
+    const board = await Board.findOne({
+      _id: req.params.boardId,
+      workspaceId: workspace._id
+    }).lean();
+    if (!board)
+      return res
+        .status(404)
+        .json({ success: false, error: { code: 'NOT_FOUND', message: 'Board not found' } });
 
     await Promise.all([
       Task.deleteMany({ boardId: board._id, workspaceId: workspace._id }),
@@ -283,92 +337,126 @@ router.delete('/:workspaceId/boards/:boardId', authMiddleware, requireRole('owne
     ]);
 
     return res.json({ success: true });
-  } catch (error) {
-    return res.status(500).json({ error: 'Something went wrong' });
-  }
-});
+  })
+);
 
-router.post('/:workspaceId/boards/:boardId/columns', authMiddleware, requireRole('owner', 'admin'), async (req, res) => {
-  try {
+// ---------------------------------------------------------------------------
+// POST /:workspaceId/boards/:boardId/columns
+// ---------------------------------------------------------------------------
+
+router.post(
+  '/:workspaceId/boards/:boardId/columns',
+  authMiddleware,
+  validateObjectId('workspaceId', 'boardId'),
+  requireRole('owner', 'admin'),
+  asyncHandler(async (req, res) => {
     const { workspace, error } = await ensureWorkspaceMember(req.params.workspaceId, req.user.id);
-    if (error) {
-      return res.status(403).json({ error });
-    }
+    if (error)
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: error } });
 
-    const board = await Board.findOne({ _id: req.params.boardId, workspaceId: workspace._id });
-    if (!board) {
-      return res.status(404).json({ error: 'Board not found' });
-    }
+    const board = await Board.findOne({
+      _id: req.params.boardId,
+      workspaceId: workspace._id
+    }).lean();
+    if (!board)
+      return res
+        .status(404)
+        .json({ success: false, error: { code: 'NOT_FOUND', message: 'Board not found' } });
 
     const { name, color = '#e2e8f0' } = req.body;
-    if (!name) {
-      return res.status(400).json({ error: 'Column name is required' });
-    }
+    if (!name)
+      return res.status(400).json({
+        success: false,
+        error: { code: 'BAD_REQUEST', message: 'Column name is required' }
+      });
 
-    const maxOrder = await Column.findOne({ boardId: board._id }).sort({ order: -1 }).select('order');
+    const maxOrderDoc = await Column.findOne({ boardId: board._id })
+      .sort({ order: -1 })
+      .select('order')
+      .lean();
     const column = await Column.create({
       boardId: board._id,
       workspaceId: workspace._id,
       name: String(name).trim(),
       color,
-      order: (maxOrder?.order ?? -1) + 1
+      order: (maxOrderDoc?.order ?? -1) + 1
     });
 
-    return res.status(201).json({ column: serializeColumn(column) });
-  } catch (error) {
-    return res.status(500).json({ error: 'Something went wrong' });
-  }
-});
+    return res.status(201).json({ success: true, column: serializeColumn(column) });
+  })
+);
 
-router.patch('/:workspaceId/boards/:boardId/columns/:columnId', authMiddleware, async (req, res) => {
-  try {
+// ---------------------------------------------------------------------------
+// PATCH /:workspaceId/boards/:boardId/columns/:columnId
+// ---------------------------------------------------------------------------
+
+router.patch(
+  '/:workspaceId/boards/:boardId/columns/:columnId',
+  authMiddleware,
+  validateObjectId('workspaceId', 'boardId', 'columnId'),
+  asyncHandler(async (req, res) => {
     const { workspace, error } = await ensureWorkspaceMember(req.params.workspaceId, req.user.id);
-    if (error) {
-      return res.status(403).json({ error });
-    }
+    if (error)
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: error } });
 
-    const column = await Column.findOne({ _id: req.params.columnId, boardId: req.params.boardId, workspaceId: workspace._id });
-    if (!column) {
-      return res.status(404).json({ error: 'Column not found' });
-    }
+    const column = await Column.findOne({
+      _id: req.params.columnId,
+      boardId: req.params.boardId,
+      workspaceId: workspace._id
+    });
+    if (!column)
+      return res
+        .status(404)
+        .json({ success: false, error: { code: 'NOT_FOUND', message: 'Column not found' } });
 
     const { name, color } = req.body;
-    if (name !== undefined) {
-      column.name = String(name).trim();
-    }
-    if (color !== undefined) {
-      column.color = color;
-    }
+    if (name !== undefined) column.name = String(name).trim();
+    if (color !== undefined) column.color = color;
 
     await column.save();
-    return res.json({ column: serializeColumn(column) });
-  } catch (error) {
-    return res.status(500).json({ error: 'Something went wrong' });
-  }
-});
+    return res.json({ success: true, column: serializeColumn(column) });
+  })
+);
 
-router.delete('/:workspaceId/boards/:boardId/columns/:columnId', authMiddleware, requireRole('owner', 'admin'), async (req, res) => {
-  try {
+// ---------------------------------------------------------------------------
+// DELETE /:workspaceId/boards/:boardId/columns/:columnId
+// ---------------------------------------------------------------------------
+
+router.delete(
+  '/:workspaceId/boards/:boardId/columns/:columnId',
+  authMiddleware,
+  validateObjectId('workspaceId', 'boardId', 'columnId'),
+  requireRole('owner', 'admin'),
+  asyncHandler(async (req, res) => {
     const { workspace, error } = await ensureWorkspaceMember(req.params.workspaceId, req.user.id);
-    if (error) {
-      return res.status(403).json({ error });
-    }
+    if (error)
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: error } });
 
-    const column = await Column.findOne({ _id: req.params.columnId, boardId: req.params.boardId, workspaceId: workspace._id });
-    if (!column) {
-      return res.status(404).json({ error: 'Column not found' });
-    }
+    const column = await Column.findOne({
+      _id: req.params.columnId,
+      boardId: req.params.boardId,
+      workspaceId: workspace._id
+    }).lean();
+    if (!column)
+      return res
+        .status(404)
+        .json({ success: false, error: { code: 'NOT_FOUND', message: 'Column not found' } });
 
-    const taskCount = await Task.countDocuments({ columnId: column._id, boardId: req.params.boardId, workspaceId: workspace._id });
+    const taskCount = await Task.countDocuments({
+      columnId: column._id,
+      boardId: req.params.boardId,
+      workspaceId: workspace._id
+    });
     if (taskCount > 0) {
-      return res.status(400).json({ error: 'Move tasks before deleting' });
+      return res.status(400).json({
+        success: false,
+        error: { code: 'BAD_REQUEST', message: 'Move tasks before deleting' }
+      });
     }
 
     await Column.deleteOne({ _id: column._id });
     return res.json({ success: true });
-  } catch (error) {
-    return res.status(500).json({ error: 'Something went wrong' });
-  }
-});
+  })
+);
 
 module.exports = router;

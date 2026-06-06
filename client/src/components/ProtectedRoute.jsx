@@ -7,7 +7,9 @@ export default function ProtectedRoute({ children }) {
   const location = useLocation();
 
   if (isLoading) {
-    return <div className="flex min-h-screen items-center justify-center text-slate-500">Loading...</div>;
+    return (
+      <div className="flex min-h-screen items-center justify-center text-slate-500">Loading...</div>
+    );
   }
 
   if (!isAuthenticated) {

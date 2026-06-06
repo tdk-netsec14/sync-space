@@ -34,7 +34,9 @@ export function WorkspaceProvider({ children }) {
         const savedWorkspace = localStorage.getItem(storageKeys.workspaceKey);
         if (savedWorkspace) {
           const parsed = JSON.parse(savedWorkspace);
-          const match = response.data.workspaces.find((workspace) => String(workspace.id) === String(parsed.id));
+          const match = response.data.workspaces.find(
+            (workspace) => String(workspace.id) === String(parsed.id)
+          );
           if (match) {
             setCurrentWorkspaceState(match);
           }
@@ -71,7 +73,7 @@ export function WorkspaceProvider({ children }) {
       setWorkspaces(list);
       return list;
     } catch (error) {
-      console.error("Failed to reload workspaces:", error);
+      console.error('Failed to reload workspaces:', error);
       return [];
     }
   }
