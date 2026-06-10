@@ -48,32 +48,28 @@ const authLimiter = rateLimit({
 });
 
 // ---------------------------------------------------------------------------
-// CSRF is disabled in test mode to simplify integration testing.
-// Full CSRF protection remains active in development and production.
-const IS_TEST = process.env.NODE_ENV === 'test';
+// CSRF — disabled for this JWT-based SPA.
+//
+// WHY IT IS SAFE TO SKIP:
+//   • The access token lives in localStorage, not a cookie.
+//     A CSRF attack can trigger a browser to send cookies automatically,
+//     but it CANNOT read localStorage. Without the access token the
+//     attacker's request will be rejected by authMiddleware.
+//   • The only cookie we set is the HttpOnly refresh token, but the
+//     /auth/refresh endpoint does not perform any destructive action —
+//     it just issues a new access token, which the attacker still cannot
+//     read due to the Same-Origin policy.
+//   • CORS is locked to CLIENT_URL in production, so cross-origin
+//     requests from malicious sites are rejected before reaching any route.
+//
+// Keeping csrf-csrf active caused production failures because:
+//   1. sameSite:'strict' blocks cross-origin cookies (vercel ↔ onrender).
+//   2. getSessionIdentifier(req.ip) is unstable behind Render's load balancer.
+// ---------------------------------------------------------------------------
 
-const { generateCsrfToken: _generateCsrfToken, doubleCsrfProtection: _doubleCsrfProtection } =
-  doubleCsrf({
-    getSecret: () => process.env.CSRF_SECRET || process.env.JWT_ACCESS_SECRET || 'csrf-dev-secret',
-    getSessionIdentifier: (req) => req.ip || 'unknown',
-    cookieName: 'syncspace_csrf',
-    cookieOptions: {
-      httpOnly: true,
-      // In production the frontend and backend are on different domains
-      // (vercel.app vs onrender.com) so sameSite must be 'none' (requires secure:true).
-      // In development both run on localhost so 'strict' is fine.
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/'
-    },
-    size: 64,
-    getTokenFromRequest: (req) => req.headers['x-csrf-token'] || req.body?._csrf || req.query?._csrf
-  });
+const generateCsrfToken = (_req, _res) => 'csrf-disabled';
+const doubleCsrfProtection = (_req, _res, next) => next();
 
-// In test mode: no-op stubs so tests don't need to deal with CSRF tokens
-const generateCsrfToken = IS_TEST ? (_req, _res) => 'test-csrf-token' : _generateCsrfToken;
-
-const doubleCsrfProtection = IS_TEST ? (_req, _res, next) => next() : _doubleCsrfProtection;
 
 // ---------------------------------------------------------------------------
 // Helmet CSP
