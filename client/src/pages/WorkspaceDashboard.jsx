@@ -131,7 +131,7 @@ export default function WorkspaceDashboard() {
       setInviteUrl(response.data.inviteUrl);
       setInviteMessage('Authorized invite link generated.');
     } catch (error) {
-      setInviteMessage(error.response?.data?.error || 'Unable to create invite');
+      setInviteMessage(error.response?.data?.error?.message || error.response?.data?.error || 'Unable to create invite');
     }
   }
 

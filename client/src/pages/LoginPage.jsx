@@ -89,7 +89,7 @@ export default function LoginPage() {
         navigate('/workspace/new');
       }
     } catch (error) {
-      setSubmitError(error.response?.data?.error || 'Login failed');
+      setSubmitError(error.response?.data?.error?.message || error.response?.data?.error || 'Login failed');
     } finally {
       setIsSubmitting(false);
     }

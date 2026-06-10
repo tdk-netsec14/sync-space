@@ -65,7 +65,7 @@ export default function CreateWorkspacePage() {
       await reloadWorkspaces();
       navigate(`/workspace/${response.data.workspace._id}`);
     } catch (submitError) {
-      setError(submitError.response?.data?.error || 'Unable to create workspace');
+      setError(submitError.response?.data?.error?.message || submitError.response?.data?.error || 'Unable to create workspace');
     } finally {
       setIsSubmitting(false);
     }

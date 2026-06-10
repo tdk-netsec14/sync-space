@@ -53,7 +53,7 @@ export default function ProfilePage() {
         setWorkspaces(response.data.memberships || []);
       } catch (error) {
         if (active) {
-          setMessage(error.response?.data?.error || 'Unable to load profile information.');
+          setMessage(error.response?.data?.error?.message || error.response?.data?.error || 'Unable to load profile information.');
           setIsSuccess(false);
         }
       }
@@ -75,7 +75,7 @@ export default function ProfilePage() {
       updateUser(response.data.user, response.data.token);
       setMessage('Profile updated successfully.');
     } catch (error) {
-      setMessage(error.response?.data?.error || 'Unable to update profile.');
+      setMessage(error.response?.data?.error?.message || error.response?.data?.error || 'Unable to update profile.');
       setIsSuccess(false);
     }
   }
@@ -90,7 +90,7 @@ export default function ProfilePage() {
       setPasswords({ currentPassword: '', newPassword: '', confirmPassword: '' });
       setMessage('Security credentials updated successfully.');
     } catch (error) {
-      setMessage(error.response?.data?.error || 'Unable to change password.');
+      setMessage(error.response?.data?.error?.message || error.response?.data?.error || 'Unable to change password.');
       setIsSuccess(false);
     }
   }
