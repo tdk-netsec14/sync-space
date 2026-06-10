@@ -61,8 +61,14 @@ export default function RegisterPage() {
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
       nextErrors.email = 'Enter a valid email';
     if (!form.password) nextErrors.password = 'Password is required';
-    if (form.password && form.password.length < 6)
-      nextErrors.password = 'Password must be at least 6 characters';
+    else if (form.password.length < 8)
+      nextErrors.password = 'Password must be at least 8 characters';
+    else if (!/[A-Z]/.test(form.password))
+      nextErrors.password = 'Password must contain at least one uppercase letter';
+    else if (!/[0-9]/.test(form.password))
+      nextErrors.password = 'Password must contain at least one number';
+    else if (!/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(form.password))
+      nextErrors.password = 'Password must contain at least one special character';
     return nextErrors;
   }, [form]);
 
@@ -93,7 +99,7 @@ export default function RegisterPage() {
         navigate('/workspace/new');
       }
     } catch (error) {
-      setSubmitError(error.response?.data?.error || 'Registration failed');
+      setSubmitError(error.response?.data?.error?.message || error.response?.data?.error || 'Registration failed');
     } finally {
       setIsSubmitting(false);
     }
@@ -230,7 +236,11 @@ export default function RegisterPage() {
                 />
                 {errors.password ? (
                   <p className="mt-1 text-[11px] font-bold text-red-500">{errors.password}</p>
-                ) : null}
+                ) : (
+                  <p className="mt-1 text-[10px] text-brand-black/40 font-sans-editorial">
+                    8+ chars · uppercase · number · special character
+                  </p>
+                )}
               </label>
             </div>
 

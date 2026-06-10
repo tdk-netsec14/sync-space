@@ -34,6 +34,31 @@ export const api = axios.create({
 });
 
 // ---------------------------------------------------------------------------
+// CSRF token — lazily fetched and cached in memory
+// ---------------------------------------------------------------------------
+let csrfToken = null;
+let csrfFetchPromise = null;
+
+const MUTATING_METHODS = new Set(['post', 'put', 'patch', 'delete']);
+
+async function ensureCsrfToken() {
+  if (csrfToken) return csrfToken;
+  // Deduplicate concurrent fetches
+  if (!csrfFetchPromise) {
+    csrfFetchPromise = axios
+      .get(`${BASE_URL}${API_PREFIX}/auth/csrf-token`, { withCredentials: true })
+      .then((res) => {
+        csrfToken = res.data.csrfToken;
+        return csrfToken;
+      })
+      .finally(() => {
+        csrfFetchPromise = null;
+      });
+  }
+  return csrfFetchPromise;
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 function getToken() {
@@ -70,17 +95,30 @@ async function refreshAccessToken() {
     {},
     { withCredentials: true }
   );
-  const { accessToken } = response.data;
-  localStorage.setItem(tokenKey, accessToken);
-  return accessToken;
+  // Server returns { token: '...' } — not { accessToken: '...' }
+  const newToken = response.data.token || response.data.accessToken;
+  if (!newToken) throw new Error('No token returned from refresh endpoint');
+  localStorage.setItem(tokenKey, newToken);
+  return newToken;
 }
 
 // ---------------------------------------------------------------------------
-// Request interceptor — attach Authorization header
+// Request interceptor — attach Authorization + CSRF headers
 // ---------------------------------------------------------------------------
-api.interceptors.request.use((config) => {
+api.interceptors.request.use(async (config) => {
   const token = getToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
+
+  // Attach CSRF token to all mutating requests
+  if (MUTATING_METHODS.has(config.method?.toLowerCase())) {
+    try {
+      const csrf = await ensureCsrfToken();
+      if (csrf) config.headers['x-csrf-token'] = csrf;
+    } catch {
+      // Non-fatal — server will reject with 403 if token is truly required
+    }
+  }
+
   return config;
 });
 
@@ -100,6 +138,21 @@ api.interceptors.response.use(
 
     const { status, data } = error.response;
     const code = data?.error?.code;
+
+    // -----------------------------------------------------------------------
+    // 403 CSRF failure — clear cached token, fetch a fresh one, retry once
+    // -----------------------------------------------------------------------
+    if (status === 403 && !originalRequest._csrfRetried) {
+      originalRequest._csrfRetried = true;
+      csrfToken = null; // invalidate stale token
+      try {
+        const freshCsrf = await ensureCsrfToken();
+        originalRequest.headers['x-csrf-token'] = freshCsrf;
+        return api(originalRequest);
+      } catch {
+        // Fall through to normal rejection
+      }
+    }
 
     // -----------------------------------------------------------------------
     // 401 TOKEN_EXPIRED — attempt silent refresh (once per request)
