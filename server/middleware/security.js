@@ -59,7 +59,10 @@ const { generateCsrfToken: _generateCsrfToken, doubleCsrfProtection: _doubleCsrf
     cookieName: 'syncspace_csrf',
     cookieOptions: {
       httpOnly: true,
-      sameSite: 'strict',
+      // In production the frontend and backend are on different domains
+      // (vercel.app vs onrender.com) so sameSite must be 'none' (requires secure:true).
+      // In development both run on localhost so 'strict' is fine.
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
       secure: process.env.NODE_ENV === 'production',
       path: '/'
     },
