@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import { fetchMe, loginUser, registerUser, storageKeys } from '../services/api';
 
 const AuthContext = createContext(null);
@@ -60,14 +60,14 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
-  function login(nextToken, nextUser) {
+  const login = useCallback((nextToken, nextUser) => {
     localStorage.setItem(storageKeys.tokenKey, nextToken);
     localStorage.setItem(storageKeys.userKey, JSON.stringify(nextUser));
     setToken(nextToken);
     setUser(nextUser);
-  }
+  }, []);
 
-  function updateUser(nextUser, nextToken = token) {
+  const updateUser = useCallback((nextUser, nextToken = token) => {
     if (nextToken) {
       localStorage.setItem(storageKeys.tokenKey, nextToken);
       setToken(nextToken);
@@ -75,16 +75,16 @@ export function AuthProvider({ children }) {
 
     localStorage.setItem(storageKeys.userKey, JSON.stringify(nextUser));
     setUser(nextUser);
-  }
+  }, [token]);
 
-  function logout() {
+  const logout = useCallback(() => {
     localStorage.removeItem(storageKeys.tokenKey);
     localStorage.removeItem(storageKeys.userKey);
     localStorage.removeItem(storageKeys.workspaceKey);
     setToken('');
     setUser(null);
     window.location.href = '/';
-  }
+  }, []);
 
   const value = useMemo(
     () => ({

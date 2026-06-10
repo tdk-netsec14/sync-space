@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import { fetchWorkspaces, storageKeys } from '../services/api';
 import { useAuth } from './AuthContext';
 
@@ -57,16 +57,16 @@ export function WorkspaceProvider({ children }) {
     };
   }, [isAuthenticated]);
 
-  function setCurrentWorkspace(workspace) {
+  const setCurrentWorkspace = useCallback((workspace) => {
     setCurrentWorkspaceState(workspace);
     if (workspace) {
       localStorage.setItem(storageKeys.workspaceKey, JSON.stringify(workspace));
     } else {
       localStorage.removeItem(storageKeys.workspaceKey);
     }
-  }
+  }, []);
 
-  async function reloadWorkspaces() {
+  const reloadWorkspaces = useCallback(async () => {
     try {
       const response = await fetchWorkspaces();
       const list = response.data.workspaces || [];
@@ -76,7 +76,7 @@ export function WorkspaceProvider({ children }) {
       console.error('Failed to reload workspaces:', error);
       return [];
     }
-  }
+  }, []);
 
   const value = useMemo(
     () => ({
