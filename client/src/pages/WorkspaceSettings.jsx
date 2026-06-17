@@ -13,7 +13,11 @@ import {
   Timer,
   Palette,
   Smile,
-  Search
+  Search,
+  Link,
+  Copy,
+  Check,
+  Loader2
 } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
 import {
@@ -23,7 +27,8 @@ import {
   removeMember,
   updateMemberRole,
   updateWorkspace,
-  leaveWorkspace
+  leaveWorkspace,
+  createInvite
 } from '../services/api';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { useAuth } from '../context/AuthContext';
@@ -56,6 +61,11 @@ export default function WorkspaceSettings() {
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [memberSearch, setMemberSearch] = useState('');
   const debouncedSearch = useDebounce(memberSearch, 300);
+
+  const [inviteRole, setInviteRole] = useState('member');
+  const [inviteLink, setInviteLink] = useState('');
+  const [isGeneratingInvite, setIsGeneratingInvite] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -143,6 +153,29 @@ export default function WorkspaceSettings() {
       navigate('/workspace/new');
     }
   }
+
+  async function handleGenerateInvite() {
+    if (isGeneratingInvite) return;
+    setIsGeneratingInvite(true);
+    setInviteLink('');
+    setCopied(false);
+    try {
+      const response = await createInvite(workspaceId, { role: inviteRole });
+      setInviteLink(response.data.inviteUrl);
+    } catch (err) {
+      console.error('Failed to generate invite:', err);
+    } finally {
+      setIsGeneratingInvite(false);
+    }
+  }
+
+  function handleCopyInvite() {
+    if (!inviteLink) return;
+    navigator.clipboard.writeText(inviteLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
 
   // Compare as strings — member.user.id comes from MongoDB (ObjectId) and user.id from JWT
   const currentMember = members.find(
@@ -358,6 +391,77 @@ export default function WorkspaceSettings() {
         {tab === 'members' && (
           <section className="max-w-3xl border-editorial bg-white p-6 sm:p-8 shadow-editorial rounded-3xl relative overflow-hidden flex flex-col">
             <div className="absolute top-0 left-0 right-0 h-1.5 bg-brand-purple" />
+            
+            {/* Invite Section (Only visible to admins/owners) */}
+            {canManage && (
+              <div className="mb-8 border-b border-brand-black/10 pb-8">
+                <h2 className="font-editorial text-sm font-bold text-brand-black uppercase tracking-widest flex items-center gap-2 mb-4">
+                  <Link className="h-4.5 w-4.5 text-brand-purple" />
+                  <span>Invite Operator</span>
+                </h2>
+                
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3 bg-brand-offwhite p-4 rounded-2xl border border-brand-black/10">
+                  <div className="flex-1">
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-brand-black/65 font-sans-editorial mb-1.5">
+                      Role Access Level
+                    </label>
+                    <select
+                      value={inviteRole}
+                      onChange={(e) => setInviteRole(e.target.value)}
+                      className="w-full rounded-xl border border-brand-black/15 bg-white px-3 py-2.5 text-xs font-bold text-brand-black outline-none transition focus:border-brand-black focus:shadow-editorial-sm cursor-pointer"
+                    >
+                      <option value="member">Member</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </div>
+                  
+                  <button
+                    type="button"
+                    onClick={handleGenerateInvite}
+                    disabled={isGeneratingInvite}
+                    className="shrink-0 inline-flex h-[42px] items-center justify-center gap-2 rounded-xl bg-brand-black border-editorial px-5 text-[10px] font-editorial font-bold text-brand-yellow hover:bg-brand-black/90 cursor-pointer shadow-editorial-sm transition-all uppercase tracking-widest disabled:opacity-70"
+                  >
+                    {isGeneratingInvite ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Link className="h-3.5 w-3.5" />
+                    )}
+                    <span>Generate Link</span>
+                  </button>
+                </div>
+
+                {/* Invite Link Result */}
+                {inviteLink && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: -5 }} 
+                    animate={{ opacity: 1, y: 0 }} 
+                    className="mt-3 flex items-center gap-2 rounded-xl border border-brand-purple/30 bg-brand-lavender/10 p-2 pl-4"
+                  >
+                    <span className="flex-1 truncate text-xs font-sans-editorial font-bold text-brand-purple">
+                      {inviteLink}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleCopyInvite}
+                      className="shrink-0 flex h-8 items-center gap-1.5 rounded-lg bg-white px-3 text-[10px] font-black uppercase tracking-widest text-brand-purple hover:bg-brand-purple hover:text-white transition-colors border border-brand-purple/20 shadow-sm"
+                    >
+                      {copied ? (
+                        <>
+                          <Check className="h-3.5 w-3.5" />
+                          <span>Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-3.5 w-3.5" />
+                          <span>Copy</span>
+                        </>
+                      )}
+                    </button>
+                  </motion.div>
+                )}
+              </div>
+            )}
+
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-brand-black/10 pb-4 mb-5">
               <h2 className="font-editorial text-sm font-bold text-brand-black uppercase tracking-widest flex items-center gap-2">
                 <Users className="h-4.5 w-4.5 text-brand-purple" />
