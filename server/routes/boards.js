@@ -299,6 +299,17 @@ router.patch(
     }
     await board.save();
 
+    try {
+      const user = await User.findById(req.user.id).select('name').lean();
+      await logActivity(
+        workspace._id,
+        req.user.id,
+        'board_updated',
+        `${user?.name || 'Someone'} updated board ${board.name}`,
+        { boardId: String(board._id) }
+      );
+    } catch (_) {}
+
     const io = req.app.get('io');
     io.to(`workspace:${workspace._id}`).emit('board:updated', { board: serializeBoard(board) });
 
@@ -335,6 +346,17 @@ router.delete(
       Comment.deleteMany({ boardId: board._id, workspaceId: workspace._id }),
       Board.deleteOne({ _id: board._id })
     ]);
+
+    try {
+      const user = await User.findById(req.user.id).select('name').lean();
+      await logActivity(
+        workspace._id,
+        req.user.id,
+        'board_deleted',
+        `${user?.name || 'Someone'} deleted board ${board.name}`,
+        { boardId: String(board._id) }
+      );
+    } catch (_) {}
 
     return res.json({ success: true });
   })

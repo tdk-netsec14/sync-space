@@ -115,17 +115,25 @@ export default function WorkspaceSettings() {
   }
 
   async function handleRoleChange(userId, role) {
-    const response = await updateMemberRole(workspaceId, userId, { role });
-    setMembers((current) =>
-      current.map((member) =>
-        member.user?.id === userId ? { ...member, role: response.data.member.role } : member
-      )
-    );
+    try {
+      const response = await updateMemberRole(workspaceId, userId, { role });
+      setMembers((current) =>
+        current.map((member) =>
+          member.user?.id === userId ? { ...member, role: response.data.member.role } : member
+        )
+      );
+    } catch (error) {
+      alert(error.response?.data?.error?.message || 'Failed to update role');
+    }
   }
 
   async function handleRemove(userId) {
-    await removeMember(workspaceId, userId);
-    setMembers((current) => current.filter((member) => member.user?.id !== userId));
+    try {
+      await removeMember(workspaceId, userId);
+      setMembers((current) => current.filter((member) => member.user?.id !== userId));
+    } catch (error) {
+      alert(error.response?.data?.error?.message || 'Failed to remove member');
+    }
   }
 
   async function confirmDeleteWorkspace() {
@@ -520,7 +528,7 @@ export default function WorkspaceSettings() {
                     <select
                       value={member.role}
                       onChange={(event) => handleRoleChange(member.user?.id, event.target.value)}
-                      disabled={member.role === 'owner'}
+                      disabled={!isOwner && member.role === 'owner'}
                       className="rounded-xl border border-brand-black bg-white px-3 py-2 text-[10px] font-sans-editorial font-bold text-brand-black outline-none transition focus:shadow-editorial-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <option value="owner">owner</option>

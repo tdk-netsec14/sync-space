@@ -7,6 +7,8 @@ const requireRole = require('../middleware/rbacMiddleware');
 const validateObjectId = require('../middleware/validateObjectId');
 const asyncHandler = require('../utils/asyncHandler');
 const { parsePaginationQuery, applyCursor, buildMeta } = require('../utils/paginate');
+const { logActivity } = require('../services/activityService');
+const User = require('../models/User');
 
 const router = express.Router();
 
@@ -119,15 +121,45 @@ router.patch(
         .status(404)
         .json({ success: false, error: { code: 'NOT_FOUND', message: 'Member not found' } });
 
-    if (String(workspace.ownerId) === String(targetMember.userId)) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'BAD_REQUEST', message: "Cannot change owner's role" }
-      });
+    if (role === 'owner') {
+      if (String(workspace.ownerId) !== String(req.user.id)) {
+        return res.status(403).json({
+          success: false,
+          error: { code: 'FORBIDDEN', message: 'Only the current owner can transfer ownership' }
+        });
+      }
+
+      // Demote current owner to admin
+      await Member.updateOne(
+        { workspaceId: workspace._id, userId: req.user.id },
+        { $set: { role: 'admin' } }
+      );
+
+      // Transfer workspace ownership
+      workspace.ownerId = targetMember.userId;
+      await workspace.save();
+    } else {
+      if (String(workspace.ownerId) === String(targetMember.userId)) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'BAD_REQUEST', message: "Cannot change owner's role directly. Transfer ownership first." }
+        });
+      }
     }
 
     targetMember.role = role;
     await targetMember.save();
+
+    try {
+      const user = await User.findById(req.user.id).select('name').lean();
+      await logActivity(
+        workspace._id,
+        req.user.id,
+        'member_updated',
+        `${user?.name || 'Someone'} updated a member's role to ${role}`,
+        { targetUserId: String(targetMember.userId), newRole: role }
+      );
+    } catch (_) {}
 
     return res.json({ success: true, member: targetMember });
   })
@@ -171,6 +203,18 @@ router.delete(
     }
 
     await Member.deleteOne({ _id: targetMember._id });
+
+    try {
+      const user = await User.findById(req.user.id).select('name').lean();
+      await logActivity(
+        workspace._id,
+        req.user.id,
+        'member_removed',
+        `${user?.name || 'Someone'} removed a member`,
+        { removedUserId: String(targetMember.userId) }
+      );
+    } catch (_) {}
+
     return res.json({ success: true });
   })
 );

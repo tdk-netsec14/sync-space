@@ -406,6 +406,15 @@ router.patch(
           }
         );
       }
+      
+      const user = await User.findById(req.user.id).select('name').lean();
+      await logActivity(
+        workspace._id,
+        req.user.id,
+        'task_updated',
+        `${user?.name || 'Someone'} updated task ${task.title}`,
+        { taskId: String(task._id), boardId: String(task.boardId) }
+      );
     } catch (_) {
       /* non-critical */
     }
@@ -447,6 +456,17 @@ router.delete(
       taskId: String(task._id),
       senderId: req.user.id
     });
+
+    try {
+      const user = await User.findById(req.user.id).select('name').lean();
+      await logActivity(
+        workspace._id,
+        req.user.id,
+        'task_deleted',
+        `${user?.name || 'Someone'} deleted task ${task.title}`,
+        { taskId: String(task._id), boardId: String(task.boardId) }
+      );
+    } catch (_) {}
 
     return res.json({ success: true });
   })
