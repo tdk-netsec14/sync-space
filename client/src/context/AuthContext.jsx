@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
-import { fetchMe, loginUser, registerUser, storageKeys } from '../services/api';
+import { fetchMe, loginUser, registerUser, storageKeys, refreshToken } from '../services/api';
 
 const AuthContext = createContext(null);
 
@@ -23,34 +23,41 @@ export function AuthProvider({ children }) {
     async function validateToken() {
       const savedToken = localStorage.getItem(storageKeys.tokenKey);
 
-      if (!savedToken) {
-        setIsLoading(false);
-        return;
-      }
-
-      try {
-        const response = await fetchMe();
-        if (!active) {
-          return;
-        }
-
-        setToken(savedToken);
-        setUser(response.data.user);
-        localStorage.setItem(storageKeys.userKey, JSON.stringify(response.data.user));
-      } catch (error) {
-        if (error.response && (error.response.status === 401 || error.response.status === 403)) {
-          logout();
-        } else {
-          console.warn(
-            'Network connection to server failed. Retaining active session locally.',
-            error
-          );
-        }
-      } finally {
-        if (active) {
+      // If we have a token already, just validate it
+      if (savedToken) {
+        try {
+          const response = await fetchMe();
+          if (!active) return;
+          setToken(savedToken);
+          setUser(response.data.user);
+          localStorage.setItem(storageKeys.userKey, JSON.stringify(response.data.user));
           setIsLoading(false);
+          return;
+        } catch (error) {
+          // If token invalid, fall through to refresh attempt
+          console.warn('Existing token invalid, attempting refresh');
         }
       }
+
+      // No valid token – attempt silent refresh using httpOnly cookie (if present)
+      try {
+        const refreshResp = await refreshToken();
+        const newToken = refreshResp.data.token || refreshResp.data.accessToken;
+        if (newToken) {
+          localStorage.setItem(storageKeys.tokenKey, newToken);
+          setToken(newToken);
+          const me = await fetchMe();
+          setUser(me.data.user);
+          localStorage.setItem(storageKeys.userKey, JSON.stringify(me.data.user));
+          if (active) setIsLoading(false);
+          return; // success, skip logout
+        }
+      } catch (e) {
+        // Refresh failed – proceed to logout (no session)
+      }
+
+      // No token and refresh failed – clear loading and stay logged out
+      if (active) setIsLoading(false);
     }
 
     validateToken();

@@ -129,28 +129,38 @@ export default function WorkspaceSettings() {
   }
 
   async function confirmDeleteWorkspace() {
-    await deleteWorkspace(workspaceId);
-    const updatedList = await reloadWorkspaces();
-    if (updatedList && updatedList.length > 0) {
-      const nextWorkspace = updatedList[0];
-      setCurrentWorkspace(nextWorkspace);
-      navigate(`/workspace/${nextWorkspace.id}`);
-    } else {
-      setCurrentWorkspace(null);
-      navigate('/workspace/new');
+    try {
+      await deleteWorkspace(workspaceId);
+      const updatedList = await reloadWorkspaces();
+      if (updatedList && updatedList.length > 0) {
+        const nextWorkspace = updatedList[0];
+        setCurrentWorkspace(nextWorkspace);
+        navigate(`/workspace/${nextWorkspace.id}`);
+      } else {
+        setCurrentWorkspace(null);
+        navigate('/workspace/new');
+      }
+    } catch (err) {
+      alert(err.response?.data?.error?.message || 'Failed to delete workspace');
+      setShowDeleteConfirm(false);
     }
   }
 
   async function confirmLeaveWorkspace() {
-    await leaveWorkspace(workspaceId);
-    const updatedList = await reloadWorkspaces();
-    if (updatedList && updatedList.length > 0) {
-      const nextWorkspace = updatedList[0];
-      setCurrentWorkspace(nextWorkspace);
-      navigate(`/workspace/${nextWorkspace.id}`);
-    } else {
-      setCurrentWorkspace(null);
-      navigate('/workspace/new');
+    try {
+      await leaveWorkspace(workspaceId);
+      const updatedList = await reloadWorkspaces();
+      if (updatedList && updatedList.length > 0) {
+        const nextWorkspace = updatedList[0];
+        setCurrentWorkspace(nextWorkspace);
+        navigate(`/workspace/${nextWorkspace.id}`);
+      } else {
+        setCurrentWorkspace(null);
+        navigate('/workspace/new');
+      }
+    } catch (err) {
+      alert(err.response?.data?.error?.message || 'Failed to leave workspace');
+      setShowLeaveConfirm(false);
     }
   }
 
@@ -177,11 +187,18 @@ export default function WorkspaceSettings() {
   }
 
 
-  // Compare as strings — member.user.id comes from MongoDB (ObjectId) and user.id from JWT
   const currentMember = members.find(
     (member) => String(member.user?._id || member.user?.id) === String(user?.id)
   );
   const canManage = currentMember && ['owner', 'admin'].includes(currentMember.role);
+  const isOwner = currentMember?.role === 'owner';
+
+  // Force tab to danger if they cannot manage
+  React.useEffect(() => {
+    if (!isLoading && !canManage && tab !== 'danger') {
+      setTab('danger');
+    }
+  }, [isLoading, canManage, tab]);
 
   const filteredMembers = debouncedSearch.trim()
     ? members.filter(
@@ -207,7 +224,7 @@ export default function WorkspaceSettings() {
     );
   }
 
-  if (!isLoading && !canManage) {
+  if (!isLoading && !currentMember) {
     return (
       <div className="min-h-screen bg-brand-offwhite relative flex">
         <Sidebar
@@ -217,7 +234,7 @@ export default function WorkspaceSettings() {
           onClose={() => setIsSidebarOpen(false)}
         />
         <main className="flex flex-1 items-center justify-center p-6 text-rose-700 md:ml-[260px] font-editorial font-bold uppercase tracking-widest">
-          You do not have access to workspace settings.
+          You are not a member of this workspace.
         </main>
       </div>
     );
@@ -259,7 +276,7 @@ export default function WorkspaceSettings() {
 
         {/* Tab Selectors */}
         <div className="mb-8 flex gap-3 flex-wrap">
-          {['general', 'members', 'danger'].map((item) => (
+          {(canManage ? ['general', 'members', 'danger'] : ['danger']).map((item) => (
             <motion.div key={item} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
               <button
                 type="button"
@@ -277,7 +294,7 @@ export default function WorkspaceSettings() {
         </div>
 
         {/* Tab content panels */}
-        {tab === 'general' && (
+        {tab === 'general' && canManage && (
           <form
             onSubmit={handleSave}
             className="max-w-2xl border-editorial bg-white p-6 sm:p-8 shadow-editorial rounded-3xl relative overflow-hidden flex flex-col"
@@ -388,7 +405,7 @@ export default function WorkspaceSettings() {
           </form>
         )}
 
-        {tab === 'members' && (
+        {tab === 'members' && canManage && (
           <section className="max-w-3xl border-editorial bg-white p-6 sm:p-8 shadow-editorial rounded-3xl relative overflow-hidden flex flex-col">
             <div className="absolute top-0 left-0 right-0 h-1.5 bg-brand-purple" />
             
@@ -545,27 +562,31 @@ export default function WorkspaceSettings() {
             </p>
 
             <div className="mt-6 flex flex-wrap gap-4">
-              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                <button
-                  type="button"
-                  onClick={() => setShowLeaveConfirm(true)}
-                  className="rounded-full border border-brand-black/15 bg-white hover:bg-brand-beige text-xs font-editorial font-bold uppercase tracking-widest px-5 py-3 cursor-pointer inline-flex items-center gap-2 text-brand-black"
-                >
-                  <LogOut className="h-4 w-4" />
-                  <span>Leave Workspace</span>
-                </button>
-              </motion.div>
+              {!isOwner && (
+                <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowLeaveConfirm(true)}
+                    className="rounded-full border border-brand-black/15 bg-white hover:bg-brand-beige text-xs font-editorial font-bold uppercase tracking-widest px-5 py-3 cursor-pointer inline-flex items-center gap-2 text-brand-black"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    <span>Leave Workspace</span>
+                  </button>
+                </motion.div>
+              )}
 
-              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                <button
-                  type="button"
-                  onClick={() => setShowDeleteConfirm(true)}
-                  className="rounded-full bg-rose-600 border-editorial px-5 py-3 text-xs font-editorial font-bold uppercase tracking-widest text-white hover:bg-rose-700 cursor-pointer shadow-editorial-sm inline-flex items-center gap-2"
-                >
-                  <Trash2 className="h-4 w-4 text-white" />
-                  <span>Delete Workspace</span>
-                </button>
-              </motion.div>
+              {isOwner && (
+                <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="rounded-full bg-rose-600 border-editorial px-5 py-3 text-xs font-editorial font-bold uppercase tracking-widest text-white hover:bg-rose-700 cursor-pointer shadow-editorial-sm inline-flex items-center gap-2"
+                  >
+                    <Trash2 className="h-4 w-4 text-white" />
+                    <span>Delete Workspace</span>
+                  </button>
+                </motion.div>
+              )}
             </div>
           </section>
         )}

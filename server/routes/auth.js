@@ -78,7 +78,7 @@ const changePasswordSchema = z
 // ---------------------------------------------------------------------------
 
 const REFRESH_COOKIE = 'syncspace_refresh';
-const REFRESH_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+const REFRESH_EXPIRY_MS = 10 * 24 * 60 * 60 * 1000; // 10 days
 
 function getRefreshCookieOptions() {
   const isProduction = process.env.NODE_ENV === 'production';
@@ -110,13 +110,13 @@ function clearRefreshCookie(res) {
 function createAccessToken(user) {
   const secret = process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET;
   return jwt.sign({ id: user._id.toString(), name: user.name, email: user.email }, secret, {
-    expiresIn: '15m'
+    expiresIn: '3d'
   });
 }
 
 function createRefreshToken(user) {
   const secret = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET;
-  return jwt.sign({ id: user._id.toString() }, secret, { expiresIn: '7d' });
+  return jwt.sign({ id: user._id.toString() }, secret, { expiresIn: '10d' });
 }
 
 // ---------------------------------------------------------------------------

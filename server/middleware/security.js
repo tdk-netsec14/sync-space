@@ -8,7 +8,7 @@
 const helmet = require('helmet');
 const mongoSanitize = require('express-mongo-sanitize');
 const hpp = require('hpp');
-const rateLimit = require('express-rate-limit');
+// const rateLimit = require('express-rate-limit'); // disabled per user request
 const { doubleCsrf } = require('csrf-csrf');
 const cookieParser = require('cookie-parser');
 
@@ -20,13 +20,7 @@ const cookieParser = require('cookie-parser');
  * Global limiter — 200 requests per 15 minutes per IP.
  * Applied to every route.
  */
-const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 200,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many requests. Please slow down.' }
-});
+// Global rate limiter removed as per request
 
 /**
  * Auth limiter — disabled. The User model's 5-attempt lockout provides
@@ -133,7 +127,7 @@ function applySecurityMiddleware(app) {
   app.use(hpp());
 
   // 5. Global rate limiter
-  app.use(globalLimiter);
+  // app.use(globalLimiter); // disabled
 }
 
 module.exports = {
