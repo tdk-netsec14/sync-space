@@ -49,14 +49,14 @@ export default function BoardCard({ board, workspaceId, onDelete }) {
                 <span>{board.taskCount || 0} tasks</span>
               </span>
 
-              {/* Delete button */}
+              {/* Delete button — always visible, highlights red on hover */}
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   setShowConfirm(true);
                 }}
-                className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg text-brand-black/30 hover:text-rose-600 hover:bg-rose-50"
+                className="p-1.5 rounded-lg text-brand-black/25 hover:text-rose-600 hover:bg-rose-50 transition-colors duration-150"
                 title="Delete sprint track"
               >
                 <Trash2 className="h-3.5 w-3.5" />

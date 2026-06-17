@@ -1,9 +1,10 @@
 import React, { memo, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { Calendar, AlertCircle } from 'lucide-react';
 import DOMPurify from 'dompurify';
 
 const priorityColors = {
-  urgent: 'bg-rose-500 pulse-glow-yellow animate-pulse',
+  urgent: 'bg-rose-500 animate-pulse',
   high: 'bg-brand-yellow border border-brand-black/10',
   medium: 'bg-brand-purple',
   low: 'bg-brand-black/25'
@@ -11,28 +12,34 @@ const priorityColors = {
 
 /**
  * TaskCard — memoized to prevent re-renders when an unrelated task updates.
- * All user-generated text (title, labels) is sanitized with DOMPurify.
+ *
+ * Portal approach for drag:
+ *   When isDragging, we render through a React portal into document.body.
+ *   This prevents the drag clone from being offset by any scrolled/overflow
+ *   ancestor container (the common cause of "cursor is far from the card").
  */
 const TaskCard = memo(function TaskCard({ task, onClick, provided, snapshot }) {
   const overdue = task.dueDate && new Date(task.dueDate).getTime() < Date.now();
+  const isDragging = snapshot?.isDragging;
 
-  // Sanitize user-generated content — prevents XSS from malicious task titles
   const safeTitle = useMemo(() => DOMPurify.sanitize(task.title || ''), [task.title]);
   const safeLabels = useMemo(
     () => (task.labels || []).map((l) => DOMPurify.sanitize(l)),
     [task.labels]
   );
 
-  return (
+  const card = (
     <div
       ref={provided?.innerRef}
       {...provided?.draggableProps}
       {...provided?.dragHandleProps}
+      // Explicitly pass style — required for portal to get correct drag coordinates
+      style={provided?.draggableProps?.style}
       onClick={onClick}
-      className={`group cursor-pointer rounded-2xl border-editorial bg-white p-4 shadow-editorial-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-editorial ${
-        snapshot?.isDragging
-          ? 'scale-[1.03] rotate-[1.5deg] shadow-editorial border-brand-purple bg-brand-lavender/10 ring-2 ring-brand-purple/20'
-          : 'border-brand-black'
+      className={`group cursor-pointer rounded-2xl border-editorial bg-white p-4 shadow-editorial-sm ${
+        isDragging
+          ? 'rotate-[1.5deg] shadow-editorial border-brand-purple bg-brand-lavender/10 ring-2 ring-brand-purple/20 opacity-95'
+          : 'border-brand-black hover:-translate-y-0.5 hover:shadow-editorial transition-all duration-200'
       }`}
     >
       {/* Task Priority Tag */}
@@ -47,7 +54,7 @@ const TaskCard = memo(function TaskCard({ task, onClick, provided, snapshot }) {
         </span>
       </div>
 
-      {/* Task Title — rendered as sanitized plain text (not innerHTML) */}
+      {/* Task Title */}
       <h4 className="mt-2.5 text-xs font-editorial font-bold text-brand-black leading-snug group-hover:text-brand-purple transition duration-150">
         {safeTitle}
       </h4>
@@ -92,7 +99,7 @@ const TaskCard = memo(function TaskCard({ task, onClick, provided, snapshot }) {
 
         {task.assignee && (
           <div
-            className="flex h-6.5 w-6.5 items-center justify-center rounded-full text-[8px] font-black text-brand-black border border-brand-black/10 shadow-sm"
+            className="flex h-6 w-6 items-center justify-center rounded-full text-[8px] font-black text-brand-black border border-brand-black/10 shadow-sm shrink-0"
             style={{ backgroundColor: '#DCC7FF' }}
             title={DOMPurify.sanitize(task.assignee.name || '')}
           >
@@ -102,6 +109,14 @@ const TaskCard = memo(function TaskCard({ task, onClick, provided, snapshot }) {
       </div>
     </div>
   );
+
+  // When dragging, portal to document.body so position is viewport-relative,
+  // not relative to the scrolled overflow-x:auto Kanban container.
+  if (isDragging) {
+    return createPortal(card, document.body);
+  }
+
+  return card;
 });
 
 export default TaskCard;
