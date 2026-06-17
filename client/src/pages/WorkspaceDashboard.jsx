@@ -306,36 +306,43 @@ export default function WorkspaceDashboard() {
                     {onlineUsers.size} online
                   </span>
                 )}
+              </div>
+            </div>
+
+            {/* Invite generated glowing notification banner */}
+            {(inviteMessage || inviteUrl) && (
+              <motion.div
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 rounded-2xl border-editorial border-brand-purple bg-brand-lavender/15 px-4 py-3.5 text-xs font-bold text-brand-black"
+              >
+                <div className="flex items-start gap-2.5 flex-1 min-w-0">
+                  <CheckCircle2 className="h-4.5 w-4.5 shrink-0 text-brand-purple mt-0.5" />
+                  <div className="min-w-0">
+                    <span className="text-[10px] uppercase font-editorial tracking-wider text-brand-purple">
+                      Invitation Generated
+                    </span>
+                    <p className="mt-1 font-sans-editorial text-brand-black/85 leading-normal font-medium">
+                      {inviteMessage}
+                    </p>
+                    {inviteUrl && (
+                      <p className="mt-1.5 text-[11px] font-sans-editorial font-bold text-brand-purple truncate select-all">
+                        {inviteUrl}
+                      </p>
+                    )}
+                  </div>
+                </div>
                 {inviteUrl && (
-                  <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+                  <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} className="shrink-0 mt-2 sm:mt-0">
                     <button
                       type="button"
                       onClick={copyInvite}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-brand-black/10 bg-brand-offwhite px-3.5 py-1.5 text-[10px] font-bold text-brand-black hover:border-brand-black transition-all cursor-pointer shadow-sm"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-brand-purple/30 bg-white px-3.5 py-2 text-[10px] font-black uppercase tracking-widest text-brand-purple hover:bg-brand-purple hover:text-white transition-all cursor-pointer shadow-sm"
                     >
                       <Copy className="h-3.5 w-3.5" /> Copy Invite
                     </button>
                   </motion.div>
                 )}
-              </div>
-            </div>
-
-            {/* Invite generated glowing notification banner */}
-            {inviteMessage && (
-              <motion.div
-                initial={{ opacity: 0, y: -5 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mt-4 flex items-start gap-2.5 rounded-2xl border-editorial border-brand-purple bg-brand-lavender/15 px-4 py-3.5 text-xs font-bold text-brand-black"
-              >
-                <CheckCircle2 className="h-4.5 w-4.5 shrink-0 text-brand-purple mt-0.5" />
-                <div>
-                  <span className="text-[10px] uppercase font-editorial tracking-wider text-brand-purple">
-                    Invitation Generated
-                  </span>
-                  <p className="mt-1 font-sans-editorial text-brand-black/85 leading-normal font-medium">
-                    {inviteMessage}
-                  </p>
-                </div>
               </motion.div>
             )}
 

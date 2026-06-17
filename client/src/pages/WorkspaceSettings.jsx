@@ -179,7 +179,7 @@ export default function WorkspaceSettings() {
 
   // Compare as strings — member.user.id comes from MongoDB (ObjectId) and user.id from JWT
   const currentMember = members.find(
-    (member) => String(member.user?.id) === String(user?.id)
+    (member) => String(member.user?._id || member.user?.id) === String(user?.id)
   );
   const canManage = currentMember && ['owner', 'admin'].includes(currentMember.role);
 
