@@ -46,6 +46,11 @@ export default function BoardsListPage() {
     setShowModal(false);
   }
 
+  function handleDeleteBoard(boardId) {
+    setBoards((current) => current.filter((b) => b.id !== boardId));
+  }
+
+
   if (loading) {
     return (
       <div className="min-h-screen bg-brand-offwhite dot-grid relative flex">
@@ -120,8 +125,9 @@ export default function BoardsListPage() {
               className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3"
             >
               {boards.map((board) => (
-                <BoardCard key={board.id} board={board} workspaceId={workspaceId} />
+                <BoardCard key={board.id} board={board} workspaceId={workspaceId} onDelete={handleDeleteBoard} />
               ))}
+
             </motion.div>
           ) : (
             <motion.div

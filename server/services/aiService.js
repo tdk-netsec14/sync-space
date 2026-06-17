@@ -2,39 +2,56 @@ function createPromptContext(value) {
   return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
 }
 
+/**
+ * Core AI caller — tries Gemini first, falls back to Groq.
+ * @param {string} prompt
+ * @param {number} maxTokens
+ * @returns {Promise<string>}
+ */
 async function callAI(prompt, maxTokens = 1024) {
-  try {
-    const { GoogleGenAI } = require('@google/genai');
-    const ai = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY
-    });
-
-    const res = await ai.models.generateContent({
-      model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
-      contents: prompt,
-      config: { maxOutputTokens: maxTokens }
-    });
-
-    const text = (res.text || '').trim();
-    if (text) {
-      return text;
-    }
-
-    throw new Error('Empty Gemini response');
-  } catch (geminiErr) {
-    // eslint-disable-next-line no-console
-    console.warn('Gemini failed, using Groq:', geminiErr.message);
-    const Groq = require('groq-sdk');
-    const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-    const res = await groq.chat.completions.create({
-      model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
-      messages: [{ role: 'user', content: prompt }],
-      max_tokens: maxTokens
-    });
-
-    const text = res.choices?.[0]?.message?.content || '';
-    return String(text).trim();
+  if (process.env.AI_ENABLED === 'false') {
+    throw new Error('AI features are disabled (AI_ENABLED=false)');
   }
+
+  // --- Try Gemini first (skip if quota exhausted or key missing) ---
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (geminiKey) {
+    try {
+      const { GoogleGenAI } = require('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: geminiKey });
+      const res = await ai.models.generateContent({
+        model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+        contents: prompt,
+        config: { maxOutputTokens: maxTokens }
+      });
+      // @google/genai v2: res.text is a getter returning the full text string
+      const text = res.text;
+      if (text && String(text).trim()) return String(text).trim();
+      throw new Error('Empty Gemini response');
+    } catch (geminiErr) {
+      // eslint-disable-next-line no-console
+      console.warn('[AI] Gemini unavailable, falling back to Groq:', geminiErr.message);
+    }
+  }
+
+  // --- Groq fallback ---
+  const groqKey = process.env.GROQ_API_KEY;
+  if (!groqKey) {
+    throw new Error(
+      'No AI API keys configured. Set GEMINI_API_KEY or GROQ_API_KEY in your environment.'
+    );
+  }
+
+  const Groq = require('groq-sdk');
+  const groq = new Groq({ apiKey: groqKey });
+  const groqRes = await groq.chat.completions.create({
+    model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+    messages: [{ role: 'user', content: prompt }],
+    max_tokens: maxTokens
+  });
+
+  const groqText = groqRes.choices?.[0]?.message?.content || '';
+  return String(groqText).trim();
 }
 
 function extractJson(text) {

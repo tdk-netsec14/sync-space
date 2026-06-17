@@ -87,8 +87,9 @@ export function WorkspaceProvider({ children }) {
       setCurrentWorkspace,
       reloadWorkspaces
     }),
-    [workspaces, currentWorkspace, isLoading]
+    [workspaces, currentWorkspace, isLoading, setCurrentWorkspace, reloadWorkspaces]
   );
+
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
 }

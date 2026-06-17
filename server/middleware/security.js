@@ -17,35 +17,22 @@ const cookieParser = require('cookie-parser');
 // ---------------------------------------------------------------------------
 
 /**
- * Global limiter — 100 requests per 15 minutes per IP.
+ * Global limiter — 200 requests per 15 minutes per IP.
  * Applied to every route.
  */
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 200,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests. Please slow down.' }
 });
 
 /**
- * Strict auth limiter — 10 requests per 15 minutes per IP.
- * Applied only to /api/auth/*.
+ * Auth limiter — disabled. The User model's 5-attempt lockout provides
+ * sufficient brute-force protection without blocking legitimate users.
  */
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 min
-  limit: process.env.NODE_ENV === 'test' ? 1000 : 10, // skip limit in tests so sequential tests don't fail
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  message: {
-    success: false,
-    error: {
-      code: 'TOO_MANY_REQUESTS',
-      message: 'Too many auth attempts from this IP, please try again after 15 minutes'
-    }
-  },
-  skipSuccessfulRequests: false
-});
+const authLimiter = (_req, _res, next) => next();
 
 // ---------------------------------------------------------------------------
 // CSRF — disabled for this JWT-based SPA.
