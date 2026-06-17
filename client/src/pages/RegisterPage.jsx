@@ -89,11 +89,16 @@ export default function RegisterPage() {
       setSubmitError('');
       const response = await registerUser(form, inviteToken);
       login(response.data.token, response.data.user);
+      // Backend always creates personal workspace AND joins invite workspace.
+      // invitedWorkspaceId is set when an invite token was used — navigate there.
+      const invitedId = response.data.invitedWorkspaceId;
+      if (invitedId) {
+        navigate(`/workspace/${invitedId}`);
+        return;
+      }
       const meResponse = await fetchMe();
       const firstMembership = meResponse.data.memberships?.[0];
-      if (inviteToken && inviteInfo?.workspace?.id) {
-        navigate(`/workspace/${inviteInfo.workspace.id}`);
-      } else if (firstMembership?.workspace?.id) {
+      if (firstMembership?.workspace?.id) {
         navigate(`/workspace/${firstMembership.workspace.id}`);
       } else {
         navigate('/workspace/new');

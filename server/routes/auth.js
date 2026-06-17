@@ -204,6 +204,47 @@ router.post(
 
     const user = await User.create({ name, email, password, avatar: avatarColor(email) });
 
+    // Always create a personal workspace for every new user
+    let invitedWorkspaceId = null;
+    try {
+      const Workspace = require('../models/Workspace');
+
+      const baseName = `${name}'s Workspace`;
+      const baseSlug = baseName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'my-workspace';
+
+      let slug = baseSlug;
+      let suffix = 1;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        // eslint-disable-next-line no-await-in-loop
+        const conflict = await Workspace.findOne({ slug });
+        if (!conflict) break;
+        slug = `${baseSlug}-${suffix}`;
+        suffix += 1;
+      }
+
+      const defaultWorkspace = await Workspace.create({
+        name: baseName,
+        slug,
+        description: 'My personal workspace',
+        logo: '💼',
+        color: '#8B5CF6',
+        ownerId: user._id
+      });
+
+      await Member.create({
+        workspaceId: defaultWorkspace._id,
+        userId: user._id,
+        role: 'owner'
+      });
+    } catch (wsErr) {
+      logger.warn('Auto workspace creation failed', { userId: user._id, err: wsErr.message });
+    }
+
+    // If an invite token was provided, also join the invited workspace
     if (inviteTokenValue) {
       const inviteResult = await consumeInviteToken(inviteTokenValue, user._id);
       if (inviteResult.error) {
@@ -213,49 +254,11 @@ router.post(
           error: { code: 'BAD_REQUEST', message: `Invite token ${inviteResult.error}` }
         });
       }
-    } else {
-      // Auto-create a personal default workspace for every new user
-      try {
-        const Workspace = require('../models/Workspace');
-        const Member = require('../models/Member');
-
-        // Build a unique slug from the user's name
-        const baseName = `${name}'s Workspace`;
-        const baseSlug = baseName
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-+|-+$/g, '') || 'my-workspace';
-
-        let slug = baseSlug;
-        let suffix = 1;
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-          // eslint-disable-next-line no-await-in-loop
-          const conflict = await Workspace.findOne({ slug });
-          if (!conflict) break;
-          slug = `${baseSlug}-${suffix}`;
-          suffix += 1;
-        }
-
-        const defaultWorkspace = await Workspace.create({
-          name: baseName,
-          slug,
-          description: 'My personal workspace',
-          logo: '💼',
-          color: '#8B5CF6',
-          ownerId: user._id
-        });
-
-        await Member.create({
-          workspaceId: defaultWorkspace._id,
-          userId: user._id,
-          role: 'owner'
-        });
-      } catch (wsErr) {
-        // Non-fatal — user still gets created successfully
-        logger.warn('Auto workspace creation failed', { userId: user._id, err: wsErr.message });
-      }
+      // Capture the workspace ID so the frontend can navigate there
+      invitedWorkspaceId = String(inviteResult.invite.workspaceId._id || inviteResult.invite.workspaceId);
     }
+
+
 
     const accessToken = createAccessToken(user);
     const refreshToken = createRefreshToken(user);
@@ -263,7 +266,12 @@ router.post(
 
     logger.info('User registered', { userId: user._id, ip });
 
-    return res.status(201).json({ success: true, token: accessToken, user: serializeUser(user) });
+    return res.status(201).json({
+      success: true,
+      token: accessToken,
+      user: serializeUser(user),
+      invitedWorkspaceId: invitedWorkspaceId || null
+    });
 
   })
 );
@@ -337,6 +345,7 @@ router.post(
 
     await user.resetLoginAttempts();
 
+    let loginInvitedWorkspaceId = null;
     if (inviteTokenValue) {
       const invite = await InviteToken.findByRawToken(inviteTokenValue);
       if (invite) {
@@ -352,6 +361,12 @@ router.post(
               error: { code: 'BAD_REQUEST', message: `Invite token ${inviteResult.error}` }
             });
           }
+          loginInvitedWorkspaceId = String(
+            inviteResult.invite.workspaceId._id || inviteResult.invite.workspaceId
+          );
+        } else {
+          // Already a member — still navigate them to that workspace
+          loginInvitedWorkspaceId = String(invite.workspaceId);
         }
       }
     }
@@ -362,7 +377,12 @@ router.post(
 
     logger.info('Login successful', { userId: user._id, ip });
 
-    return res.json({ success: true, token: accessToken, user: serializeUser(user) });
+    return res.json({
+      success: true,
+      token: accessToken,
+      user: serializeUser(user),
+      invitedWorkspaceId: loginInvitedWorkspaceId || null
+    });
   })
 );
 

@@ -79,11 +79,15 @@ export default function LoginPage() {
       setSubmitError('');
       const response = await loginUser(form, inviteToken);
       login(response.data.token, response.data.user);
+      // Backend tells us which workspace to land on after invite-login
+      const invitedId = response.data.invitedWorkspaceId;
+      if (invitedId) {
+        navigate(`/workspace/${invitedId}`);
+        return;
+      }
       const meResponse = await fetchMe();
       const firstMembership = meResponse.data.memberships?.[0];
-      if (inviteToken && inviteInfo?.workspace?.id) {
-        navigate(`/workspace/${inviteInfo.workspace.id}`);
-      } else if (firstMembership?.workspace?.id) {
+      if (firstMembership?.workspace?.id) {
         navigate(`/workspace/${firstMembership.workspace.id}`);
       } else {
         navigate('/workspace/new');
