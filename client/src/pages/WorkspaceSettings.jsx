@@ -144,7 +144,10 @@ export default function WorkspaceSettings() {
     }
   }
 
-  const currentMember = members.find((member) => member.user?.id === user?.id);
+  // Compare as strings — member.user.id comes from MongoDB (ObjectId) and user.id from JWT
+  const currentMember = members.find(
+    (member) => String(member.user?.id) === String(user?.id)
+  );
   const canManage = currentMember && ['owner', 'admin'].includes(currentMember.role);
 
   const filteredMembers = debouncedSearch.trim()
@@ -171,7 +174,7 @@ export default function WorkspaceSettings() {
     );
   }
 
-  if (!canManage) {
+  if (!isLoading && !canManage) {
     return (
       <div className="min-h-screen bg-brand-offwhite relative flex">
         <Sidebar

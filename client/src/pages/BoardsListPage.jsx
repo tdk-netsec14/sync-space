@@ -41,10 +41,14 @@ export default function BoardsListPage() {
   }, [workspaceId]);
 
   async function handleCreateBoard(payload) {
+    // Let errors propagate up to BoardModal's catch block
     const response = await api.post(`/api/v1/workspaces/${workspaceId}/boards`, payload);
-    setBoards((current) => [response.data.board, ...current]);
+    const newBoard = response.data.board;
+    if (!newBoard) throw new Error('Server did not return board data');
+    setBoards((current) => [newBoard, ...current]);
     setShowModal(false);
   }
+
 
   function handleDeleteBoard(boardId) {
     setBoards((current) => current.filter((b) => b.id !== boardId));
